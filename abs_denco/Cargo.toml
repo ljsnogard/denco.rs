@@ -1,0 +1,9 @@
+[package]
+name = "abs_denco"
+version = "0.1.0"
+edition = "2024"
+description = "ABStraction of DENCO, decode and encode, am asynchronous serialization framework."
+
+[dependencies]
+abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
+gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }

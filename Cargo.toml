@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "abs_denco",
+    "denco_macro",
+    "mp_denco",
+]
+resolver = "3"
+
+# 本地开发期 patch：`cancel_rs` 上游仓库的 `cantok_rs` 还在推送中，
+# 这里固定到同级检出，保证 `abs_cancel` / `gen_mcf2` / `cantok_rs`
+# 使用同一份 `abs_cancel` 实例。上游推送后可移除本 patch。
+[patch."https://gitee.com/lino_snsalias/cancel_rs.git"]
+abs_cancel = { path = "../cancel_rs/abs_cancel-rs" }
+gen_mcf2 = { path = "../cancel_rs/gen_mcf2" }
