@@ -19,12 +19,31 @@
 //!
 //! 纯计算、不执行异步工作的方法（例如错误构造、`Visitor::expecting`、
 //! `is_human_readable`）保持同步。
+//!
+//! ## 可选特性
+//!
+//! 标准库容器的编解码实现全部是**可选**的，默认一个都不开：
+//!
+//! | feature | 增加的实现 |
+//! | --- | --- |
+//! | `alloc-collections` | `BTreeMap` / `BTreeSet` / `VecDeque` / `LinkedList` / `BinaryHeap` |
+//! | `rc` | `Rc<T>`（`Arc<T>` 保持无条件提供） |
+//! | `cow` | `Cow<'a, str>` / `Cow<'a, [T]>`（解码一律得到 `Owned`） |
+//! | `std` | `HashMap` / `HashSet`；隐含 `alloc-collections` |
+//!
+//! 需要组合多个特性时直接相加，例如：
+//!
+//! ```toml
+//! abs_denco = { version = "0.1", features = ["std", "rc", "cow"] }
+//! ```
 
 #![no_std]
 #![feature(impl_trait_in_assoc_type)]
 #![warn(missing_docs)]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod de;
 pub mod ser;

@@ -223,6 +223,31 @@ where
     }
 }
 
+impl<T> TrEncodable for &T
+where
+    T: ?Sized + TrEncodable,
+{
+    type EncodeAsync<'a, S>
+        = T::EncodeAsync<'a, S>
+    where
+        Self: 'a,
+        T: 'a,
+        S: TrEncoder + 'a,
+        S::Ok: 'a,
+        S::Error: 'a;
+
+    fn encode_async<'a, S>(&'a self, encoder: S) -> Self::EncodeAsync<'a, S>
+    where
+        Self: 'a,
+        T: 'a,
+        S: TrEncoder + 'a,
+        S::Ok: 'a,
+        S::Error: 'a,
+    {
+        T::encode_async(*self, encoder)
+    }
+}
+
 impl<T> TrEncodable for Box<T>
 where
     T: ?Sized + TrEncodable,

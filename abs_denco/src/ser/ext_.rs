@@ -25,7 +25,9 @@ where
     }
 }
 
-#[gen_may_cancel_future(CollectSeqOp)]
+// 生成的 future 会出现在容器实现（公开类型的 GAT）里，因此类型本身必须是 `pub`；
+// 构造函数只在 crate 内可见。
+#[gen_may_cancel_future(CollectSeqOp, pub, new(pub(crate)))]
 async fn collect_seq_async<'a, S, I, C>(
     serializer: S,
     iter: I,
@@ -53,7 +55,7 @@ where
     seq.end().may_cancel_with(cancel).await
 }
 
-#[gen_may_cancel_future(CollectMapOp)]
+#[gen_may_cancel_future(CollectMapOp, pub, new(pub(crate)))]
 async fn collect_map_async<'a, S, K, V, I, C>(
     serializer: S,
     iter: I,

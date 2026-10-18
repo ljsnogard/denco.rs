@@ -4,6 +4,27 @@ version = "0.1.0"
 edition = "2024"
 description = "ABStraction of DENCO, decode and encode, am asynchronous serialization framework."
 
+[features]
+# 默认不开启任何容器实现：`abs_denco` 的基础实现只依赖 `alloc`，保持最小可用面。
+default = []
+
+# `alloc::collections` 中的通用容器：`BTreeMap` / `BTreeSet` / `VecDeque` /
+# `LinkedList` / `BinaryHeap`。
+alloc-collections = []
+
+# `alloc::rc::Rc` 的透明转发实现。`Arc` 的同类实现保持无条件提供。
+rc = []
+
+# `alloc::borrow::Cow`：编码按借用值转发，解码一律产出 `Owned`。
+cow = []
+
+# `std` 专属容器：`HashMap` / `HashSet`（泛型 hasher）。同时启用 `std`，
+# 并隐含 `alloc-collections`（与 serde 的 `std => alloc` 一致）。
+std = ["alloc-collections"]
+
 [dependencies]
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
+
+[package.metadata.docs.rs]
+all-features = true

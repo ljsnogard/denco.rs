@@ -13,7 +13,12 @@ gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 [dev-dependencies]
 anylr = { git = "https://gitee.com/lino_snsalias/anylr.rs.git", branch = "dev/0.2.0" }
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
-abs_denco = { path = "../abs_denco" }
+abs_denco = { path = "../abs_denco", features = [
+    "alloc-collections",
+    "rc",
+    "cow",
+    "std",
+] }
 buffex = { git = "https://gitee.com/lino_snsalias/buffex.rs.git" }
 buffex_tokio_adapt = { git = "https://gitee.com/lino_snsalias/buffex.rs.git" }
 cantok_rs = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
