@@ -3,11 +3,10 @@
 //! 本模块对应同步版 `serde::de`，但把所有执行异步工作的操作改写为返回
 //! [`abs_cancel::TrMayCancel`] 实现的异步方法。
 
+mod access_;
 #[cfg(feature = "alloc-collections")]
 mod alloc_collections_;
-mod access_;
 mod boxed_;
-#[cfg(feature = "alloc-collections")]
 mod collect_;
 #[cfg(feature = "cow")]
 mod cow_;
@@ -20,6 +19,7 @@ mod ignored_any_;
 mod impls_;
 #[cfg(feature = "rc")]
 mod rc_;
+mod sink_;
 #[cfg(feature = "std")]
 mod std_collections_;
 mod visitor_;

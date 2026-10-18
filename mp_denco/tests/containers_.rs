@@ -8,22 +8,59 @@
 //! with deterministic order are checked byte-for-byte against `rmp-serde`; the hash
 //! containers are cross-decoded in both directions instead.
 
+#![feature(allocator_ext)]
+#![feature(btreemap_alloc)]
 #![feature(impl_trait_in_assoc_type)]
 
 use core::{
+    alloc::{AllocError, Allocator, AllocatorClone, Layout},
     future::Future,
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 use std::{
+    alloc::Global,
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
+    collections::{
+        BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque,
+        hash_map::RandomState,
+    },
     rc::Rc,
+    sync::Arc,
     task::Waker,
 };
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
 use abs_denco::{de::TrDecodable, ser::TrEncodable};
 use mp_denco::{MpDecoder, MpEncoder};
+
+/// 自定义 allocator 的分配次数计数。
+static CUSTOM_ALLOCS_: AtomicUsize = AtomicUsize::new(0);
+
+/// 一个只做计数、实际转发给 [`Global`] 的 allocator。
+///
+/// A counting allocator that forwards to [`Global`].
+#[derive(Clone, Default)]
+struct CountingAlloc;
+
+// SAFETY: 所有分配都转发给 `Global`，`deallocate` 收到的指针与布局来自同一个
+// `Global` 分配；没有跨 allocator 释放，也没有提前失效。
+unsafe impl Allocator for CountingAlloc {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        CUSTOM_ALLOCS_.fetch_add(1, Ordering::Relaxed);
+        Global.allocate(layout)
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        // SAFETY: 由调用方保证该块来自本 allocator（即 `Global`）且只释放一次。
+        unsafe { Global.deallocate(ptr, layout) }
+    }
+}
+
+// SAFETY: `CountingAlloc` 是零大小、无 Drop、无别名的分配器，克隆出的实例与
+// 原实例等价；计数用的是全局静态量。
+unsafe impl AllocatorClone for CountingAlloc {}
 
 /// 带容器字段的派生类型：验证 `denco_macro` 不需要为容器做任何特殊处理。
 ///
@@ -374,4 +411,124 @@ fn derive_with_containers_() {
     assert_eq!(bytes, serde_bytes_(&value), "派生类型的字节应与 serde 一致");
     let got: Envelope = decode_(&bytes);
     assert_eq!(got, value);
+}
+
+/// 测试非 `Global` allocator 的容器编解码。
+/// Test container encode/decode with a non-`Global` allocator.
+///
+/// - 手段：实现一个只转发给 `Global` 的计数 allocator，用它构造 `Vec` / `VecDeque` /
+///   `LinkedList` / `BinaryHeap` / `BTreeMap` / `BTreeSet` / `HashMap` / `HashSet` /
+///   `Box` / `Rc` / `Arc`，分别做 denco 编码与解码。
+/// - 判断：所有值往返相等；顺序确定的容器与同内容的 `Global` 版本字节一致；
+///   分配计数在编解码后增长，证明分配确实经过自定义 allocator，而不是被悄悄换回
+///   `Global`。
+///
+/// - Means: implement a counting allocator that forwards to `Global` and use it to
+///   build `Vec` / `VecDeque` / `LinkedList` / `BinaryHeap` / `BTreeMap` /
+///   `BTreeSet` / `HashMap` / `HashSet` / `Box` / `Rc` / `Arc`, then encode and
+///   decode each with denco.
+/// - Verdict: every value roundtrips; deterministic containers encode to the same
+///   bytes as their `Global` counterparts; the allocation counter grows, proving the
+///   custom allocator is really used rather than silently replaced by `Global`.
+#[test]
+fn custom_allocator_containers_() {
+    let before = CUSTOM_ALLOCS_.load(Ordering::Relaxed);
+
+    // Vec
+    let mut vec: Vec<u32, CountingAlloc> = Vec::new_in(CountingAlloc);
+    vec.push(1u32);
+    vec.push(2u32);
+    assert_eq!(encode_(&vec), encode_(&vec![1u32, 2u32]));
+    let got: Vec<u32, CountingAlloc> = decode_(&encode_(&vec));
+    assert_eq!(got, vec);
+
+    // VecDeque
+    let mut deque: VecDeque<u32, CountingAlloc> = VecDeque::new_in(CountingAlloc);
+    deque.push_back(3u32);
+    deque.push_back(4u32);
+    assert_eq!(encode_(&deque), encode_(&VecDeque::from([3u32, 4u32])));
+    let got: VecDeque<u32, CountingAlloc> = decode_(&encode_(&deque));
+    assert_eq!(got, deque);
+
+    // LinkedList
+    let mut list: LinkedList<u32, CountingAlloc> = LinkedList::new_in(CountingAlloc);
+    list.push_back(5u32);
+    list.push_back(6u32);
+    assert_eq!(encode_(&list), encode_(&LinkedList::from([5u32, 6u32])));
+    let got: LinkedList<u32, CountingAlloc> = decode_(&encode_(&list));
+    assert_eq!(got, list);
+
+    // BinaryHeap
+    let mut heap: BinaryHeap<u32, CountingAlloc> = BinaryHeap::new_in(CountingAlloc);
+    heap.push(7u32);
+    heap.push(8u32);
+    assert_eq!(encode_(&heap), encode_(&BinaryHeap::from([7u32, 8u32])));
+    let got: BinaryHeap<u32, CountingAlloc> = decode_(&encode_(&heap));
+    let mut sorted: Vec<u32> = got.into_iter().collect();
+    sorted.sort_unstable();
+    assert_eq!(sorted, vec![7u32, 8u32]);
+
+    // BTreeMap
+    let mut map: BTreeMap<u16, String, CountingAlloc> = BTreeMap::new_in(CountingAlloc);
+    map.insert(1u16, "one".to_string());
+    map.insert(2u16, "two".to_string());
+    let mut global_map = BTreeMap::new();
+    global_map.insert(1u16, "one".to_string());
+    global_map.insert(2u16, "two".to_string());
+    assert_eq!(encode_(&map), encode_(&global_map));
+    let got: BTreeMap<u16, String, CountingAlloc> = decode_(&encode_(&map));
+    assert_eq!(got, map);
+
+    // BTreeSet
+    let mut set: BTreeSet<u32, CountingAlloc> = BTreeSet::new_in(CountingAlloc);
+    set.insert(9u32);
+    set.insert(10u32);
+    assert_eq!(encode_(&set), encode_(&BTreeSet::from([9u32, 10u32])));
+    let got: BTreeSet<u32, CountingAlloc> = decode_(&encode_(&set));
+    assert_eq!(got, set);
+
+    // HashMap / HashSet：顺序不确定，只做往返与交叉解码。
+    let mut hash_map: HashMap<String, i64, RandomState, CountingAlloc> =
+        HashMap::with_hasher_in(RandomState::default(), CountingAlloc);
+    hash_map.insert("a".to_string(), 1i64);
+    hash_map.insert("b".to_string(), 2i64);
+    let hash_map_bytes = encode_(&hash_map);
+    let got: HashMap<String, i64, RandomState, CountingAlloc> = decode_(&hash_map_bytes);
+    assert_eq!(got, hash_map);
+    let via_global: HashMap<String, i64> =
+        rmp_serde::from_slice(&hash_map_bytes).expect("serde 应能解码自定义 allocator 的字节");
+    let expected: HashMap<String, i64> = [("a".to_string(), 1i64), ("b".to_string(), 2)]
+        .into_iter()
+        .collect();
+    assert_eq!(via_global, expected);
+
+    let mut hash_set: HashSet<u32, RandomState, CountingAlloc> =
+        HashSet::with_hasher_in(RandomState::default(), CountingAlloc);
+    hash_set.insert(11u32);
+    hash_set.insert(12u32);
+    let hash_set_bytes = encode_(&hash_set);
+    let got: HashSet<u32, RandomState, CountingAlloc> = decode_(&hash_set_bytes);
+    assert_eq!(got, hash_set);
+
+    // Box / Rc / Arc
+    let boxed: Box<u32, CountingAlloc> = Box::new_in(13u32, CountingAlloc);
+    assert_eq!(encode_(&boxed), encode_(&Box::new(13u32)));
+    let got: Box<u32, CountingAlloc> = decode_(&encode_(&boxed));
+    assert_eq!(*got, 13u32);
+
+    let rc: Rc<u32, CountingAlloc> = Rc::new_in(14u32, CountingAlloc);
+    assert_eq!(encode_(&rc), encode_(&Rc::new(14u32)));
+    let got: Rc<u32, CountingAlloc> = decode_(&encode_(&rc));
+    assert_eq!(*got, 14u32);
+
+    let arc: Arc<u32, CountingAlloc> = Arc::new_in(15u32, CountingAlloc);
+    assert_eq!(encode_(&arc), encode_(&Arc::new(15u32)));
+    let got: Arc<u32, CountingAlloc> = decode_(&encode_(&arc));
+    assert_eq!(*got, 15u32);
+
+    let after = CUSTOM_ALLOCS_.load(Ordering::Relaxed);
+    assert!(
+        after > before,
+        "自定义 allocator 应当被实际使用：before={before}, after={after}"
+    );
 }

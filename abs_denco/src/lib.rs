@@ -36,8 +36,26 @@
 //! ```toml
 //! abs_denco = { version = "0.1", features = ["std", "rc", "cow"] }
 //! ```
+//!
+//! ## allocator 泛化
+//!
+//! 所有容器实现都按 `A: Allocator` 泛化：`Vec`、`Box`、五个
+//! `alloc::collections` 容器、`HashMap` / `HashSet`、`Rc` / `Arc` 都接受自定义
+//! allocator。解码用 `A::default()` 创建目标容器，因此 `TrDecodable` 要求
+//! `A: Default`；`BTreeMap` / `BTreeSet` 还要求 `A: AllocatorClone`。没有默认
+//! 实例的 allocator（例如 `&A`）需要先解码到默认 allocator 的容器，再自行迁移。
+//!
+//! 这些构造器（`VecDeque::new_in`、`BTreeMap::new_in`、
+//! `HashMap::with_hasher_in` 等）在当前 nightly 上仍受 `allocator_ext` 控制，
+//! BTree 的 allocator 构造还额外需要 `btreemap_alloc`。
 
 #![no_std]
+// `Allocator` 本身与 `Vec` / `Box` 的 allocator 参数在 1.100 已稳定，但
+// `VecDeque` / `BTreeMap` / `HashMap` 等容器的 `new_in` 仍受 `allocator_ext`
+// 控制，BTree 的 allocator 构造还额外需要 `btreemap_alloc`。这里无条件开启，
+// 让所有容器实现都能按 `A: Allocator` 泛化。
+#![feature(allocator_ext)]
+#![cfg_attr(feature = "alloc-collections", feature(btreemap_alloc))]
 #![feature(impl_trait_in_assoc_type)]
 #![warn(missing_docs)]
 

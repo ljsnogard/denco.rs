@@ -1,8 +1,10 @@
 //! 常见标准类型的 `TrEncodable` 实现。
 
-use alloc::{boxed::Box, string::String, vec::Vec};
 #[cfg(target_has_atomic = "ptr")]
 use alloc::sync::Arc;
+use alloc::{boxed::Box, string::String, vec::Vec};
+
+use core::alloc::Allocator;
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 
@@ -177,9 +179,10 @@ where
     }
 }
 
-impl<T> TrEncodable for Vec<T>
+impl<T, A> TrEncodable for Vec<T, A>
 where
     T: TrEncodable,
+    A: Allocator,
 {
     type EncodeAsync<'a, S>
         = EncodeSeqSliceOpAsync<'a, 'a, T, S>
@@ -248,9 +251,10 @@ where
     }
 }
 
-impl<T> TrEncodable for Box<T>
+impl<T, A> TrEncodable for Box<T, A>
 where
     T: ?Sized + TrEncodable,
+    A: Allocator,
 {
     type EncodeAsync<'a, S>
         = T::EncodeAsync<'a, S>
@@ -274,9 +278,10 @@ where
 }
 
 #[cfg(target_has_atomic = "ptr")]
-impl<T> TrEncodable for Arc<T>
+impl<T, A> TrEncodable for Arc<T, A>
 where
     T: ?Sized + TrEncodable,
+    A: Allocator,
 {
     type EncodeAsync<'a, S>
         = T::EncodeAsync<'a, S>

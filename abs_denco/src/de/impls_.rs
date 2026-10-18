@@ -1,14 +1,14 @@
 //! 常见标准类型的 `TrDecodable` 实现。
 
-use alloc::{boxed::Box, string::String, vec::Vec};
 #[cfg(target_has_atomic = "ptr")]
 use alloc::sync::Arc;
-use core::{future, marker::PhantomData};
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::{alloc::Allocator, future, marker::PhantomData};
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 
 use super::{
-    Error, SeqAccess, TrDecodable, TrDecoder, Unexpected, Visitor,
+    Error, SeqAccess, TrDecodable, TrDecoder, Unexpected, Visitor, collect_::SeqCollectVisitor,
 };
 
 macro_rules! impl_decode_unsigned_ {
@@ -406,10 +406,7 @@ impl<'de> Visitor<'de> for BoolVisitor {
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeBoolOp)]
-pub async fn decode_bool_op_async_<'de, 'a, D, C>(
-    de: D,
-    cancel: C,
-) -> Result<bool, D::Error>
+pub async fn decode_bool_op_async_<'de, 'a, D, C>(de: D, cancel: C) -> Result<bool, D::Error>
 where
     'de: 'a,
     D: TrDecoder<'de> + 'a,
@@ -479,10 +476,7 @@ impl<'de> Visitor<'de> for CharVisitor {
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeCharOp)]
-pub async fn decode_char_op_async_<'de, 'a, D, C>(
-    de: D,
-    cancel: C,
-) -> Result<char, D::Error>
+pub async fn decode_char_op_async_<'de, 'a, D, C>(de: D, cancel: C) -> Result<char, D::Error>
 where
     'de: 'a,
     D: TrDecoder<'de> + 'a,
@@ -547,17 +541,16 @@ impl<'de> Visitor<'de> for StringVisitor {
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeStringOp)]
-pub async fn decode_string_op_async_<'de, 'a, D, C>(
-    de: D,
-    cancel: C,
-) -> Result<String, D::Error>
+pub async fn decode_string_op_async_<'de, 'a, D, C>(de: D, cancel: C) -> Result<String, D::Error>
 where
     'de: 'a,
     D: TrDecoder<'de> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
-    de.decode_string(StringVisitor).may_cancel_with(cancel).await
+    de.decode_string(StringVisitor)
+        .may_cancel_with(cancel)
+        .await
 }
 
 impl<'de> TrDecodable<'de> for String {
@@ -592,9 +585,7 @@ where
         formatter.write_str("an optional value")
     }
 
-    fn visit_none<'a, E>(
-        self,
-    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
+    fn visit_none<'a, E>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
     where
         Self: 'a,
         Self::Value: 'a,
@@ -674,79 +665,13 @@ where
     }
 }
 
-struct VecVisitor<T>(PhantomData<T>);
-
-impl<'de, T> Visitor<'de> for VecVisitor<T>
+impl<'de, T, A> TrDecodable<'de> for Vec<T, A>
 where
     T: TrDecodable<'de> + 'de,
-{
-    type Value = Vec<T>;
-
-    fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.write_str("a sequence")
-    }
-
-    fn visit_seq<'a, A>(
-        self,
-        seq: A,
-    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
-    where
-        'de: 'a,
-        Self: 'a,
-        Self::Value: 'a,
-        A: SeqAccess<'de> + 'a,
-        A::Error: 'a,
-    {
-        DecodeVecSeqOpAsync::<'de, 'a, 'a, T, A>::new(seq)
-    }
-}
-
-#[gen_mcf2::gen_may_cancel_future(DecodeVecSeqOp)]
-pub async fn decode_vec_seq_async_<'de, 'a, T, A, C>(
-    mut seq: A,
-    cancel: C,
-) -> Result<Vec<T>, A::Error>
-where
-    'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    A: SeqAccess<'de> + 'a,
-    A::Error: 'a,
-    C: TrCancellationToken,
-{
-    let mut out = Vec::new();
-    while let Some(value) = seq
-        .next_element_seed(PhantomData::<T>)
-        .may_cancel_with(cancel.child_token())
-        .await?
-    {
-        out.push(value);
-    }
-    Ok(out)
-}
-
-#[gen_mcf2::gen_may_cancel_future(DecodeVecOp)]
-pub async fn decode_vec_op_async_<'de, 'a, T, D, C>(
-    de: D,
-    cancel: C,
-) -> Result<Vec<T>, D::Error>
-where
-    'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    D: TrDecoder<'de> + 'a,
-    D::Error: 'a,
-    C: TrCancellationToken,
-{
-    de.decode_seq(VecVisitor::<T>(PhantomData))
-        .may_cancel_with(cancel)
-        .await
-}
-
-impl<'de, T> TrDecodable<'de> for Vec<T>
-where
-    T: TrDecodable<'de> + 'de,
+    A: Allocator + Default,
 {
     type DecodeAsync<'a, D>
-        = DecodeVecOpAsync<'de, 'a, 'a, T, D>
+        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, Vec<T, A>>>
     where
         'de: 'a,
         D: TrDecoder<'de> + 'a,
@@ -760,7 +685,7 @@ where
         D::Error: 'a,
         Self: 'a,
     {
-        DecodeVecOpAsync::new(de)
+        de.decode_seq(SeqCollectVisitor::<T, Self>::new_())
     }
 }
 
@@ -857,27 +782,29 @@ where
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeBoxOp)]
-pub async fn decode_box_op_async_<'de, 'a, T, D, C>(
+pub async fn decode_box_op_async_<'de, 'a, T, A, D, C>(
     de: D,
     cancel: C,
-) -> Result<Box<T>, D::Error>
+) -> Result<Box<T, A>, D::Error>
 where
     'de: 'a,
     T: TrDecodable<'de> + 'de,
+    A: Allocator + Default + 'a,
     D: TrDecoder<'de> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     let value = T::decode_async(de).may_cancel_with(cancel).await?;
-    Ok(Box::new(value))
+    Ok(Box::new_in(value, A::default()))
 }
 
-impl<'de, T> TrDecodable<'de> for Box<T>
+impl<'de, T, A> TrDecodable<'de> for Box<T, A>
 where
     T: TrDecodable<'de> + 'de,
+    A: Allocator + Default,
 {
     type DecodeAsync<'a, D>
-        = DecodeBoxOpAsync<'de, 'a, 'a, T, D>
+        = DecodeBoxOpAsync<'de, 'a, 'a, T, A, D>
     where
         'de: 'a,
         D: TrDecoder<'de> + 'a,
@@ -897,28 +824,30 @@ where
 
 #[cfg(target_has_atomic = "ptr")]
 #[gen_mcf2::gen_may_cancel_future(DecodeArcOp)]
-pub async fn decode_arc_op_async_<'de, 'a, T, D, C>(
+pub async fn decode_arc_op_async_<'de, 'a, T, A, D, C>(
     de: D,
     cancel: C,
-) -> Result<Arc<T>, D::Error>
+) -> Result<Arc<T, A>, D::Error>
 where
     'de: 'a,
     T: TrDecodable<'de> + 'de,
+    A: Allocator + Default + 'a,
     D: TrDecoder<'de> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     let value = T::decode_async(de).may_cancel_with(cancel).await?;
-    Ok(Arc::new(value))
+    Ok(Arc::new_in(value, A::default()))
 }
 
 #[cfg(target_has_atomic = "ptr")]
-impl<'de, T> TrDecodable<'de> for Arc<T>
+impl<'de, T, A> TrDecodable<'de> for Arc<T, A>
 where
     T: TrDecodable<'de> + 'de,
+    A: Allocator + Default,
 {
     type DecodeAsync<'a, D>
-        = DecodeArcOpAsync<'de, 'a, 'a, T, D>
+        = DecodeArcOpAsync<'de, 'a, 'a, T, A, D>
     where
         'de: 'a,
         D: TrDecoder<'de> + 'a,

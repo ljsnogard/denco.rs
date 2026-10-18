@@ -3,12 +3,14 @@
 //! 由 `rc` feature 控制；`Arc` 的同类实现保持无条件提供，见 `impls_.rs`。
 
 use alloc::rc::Rc;
+use core::alloc::Allocator;
 
 use super::{TrEncodable, TrEncoder};
 
-impl<T> TrEncodable for Rc<T>
+impl<T, A> TrEncodable for Rc<T, A>
 where
     T: ?Sized + TrEncodable,
+    A: Allocator,
 {
     type EncodeAsync<'a, S>
         = T::EncodeAsync<'a, S>

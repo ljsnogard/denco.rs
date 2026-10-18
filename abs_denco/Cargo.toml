@@ -6,6 +6,7 @@ description = "ABStraction of DENCO, decode and encode, am asynchronous serializ
 
 [features]
 # 默认不开启任何容器实现：`abs_denco` 的基础实现只依赖 `alloc`，保持最小可用面。
+# 所有容器实现都按 `A: Allocator` 泛化；解码额外要求 `A: Default`。
 default = []
 
 # `alloc::collections` 中的通用容器：`BTreeMap` / `BTreeSet` / `VecDeque` /

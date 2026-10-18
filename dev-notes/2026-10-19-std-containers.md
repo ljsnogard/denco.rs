@@ -12,8 +12,12 @@
 默认 feature 为空，`cargo check -p abs_denco` 仍然只依赖 `alloc`。
 另外无条件补了 `impl TrEncodable for &T`，容器实现复用 `TrEncoderExt::collect_seq` /
 `collect_map` 与两个泛型解码 visitor。**`denco_macro` 不需要改动**：派生只按字段类型
-调用 `abs_denco` 的 trait，容器实现补齐后派生自动可用。实测 9 个容器集成测试通过（含派生结构体 + 容器字段），
-`cargo test -p mp_denco` 全量无回归，`cargo clippy --all-features -D warnings` 通过。
+调用 `abs_denco` 的 trait，容器实现补齐后派生自动可用。实测 10 个容器集成测试通过
+（含派生结构体 + 容器字段、以及自定义 allocator），`cargo test -p mp_denco` 全量无回归，
+`cargo clippy --all-features -D warnings` 通过。
+
+所有实现随后在 `feat/allocator-generic` 分支上泛化到 `A: Allocator`（含解码构造的
+`A: Default` 约束），详见 §9。
 
 ## 1. 现状盘点
 
@@ -120,7 +124,9 @@ where
 
 ### 2.2 解码侧：两个泛型 visitor，容器只写薄壳
 
-核心是「收集到什么容器」用 `FromIterator` 参数化，visitor 只写一次：
+初版用 `FromIterator` 参数化目标容器、visitor 只写一次；allocator 泛化时发现标准库
+只为默认 allocator 实现 `FromIterator`，于是改成 `TrSeqSink` / `TrMapSink`
+（`empty_` + `push_` / `insert_`），见 §9。原先的形状如下，保留作对照：
 
 ```rust
 struct SeqCollectVisitor<T, C>(PhantomData<(T, C)>);
@@ -300,6 +306,12 @@ struct Payload {
   否则宏拒绝展开。
 - **`no_std` 矩阵**：默认 feature 必须保持空，CI 要同时跑
   `cargo test -p abs_denco` 与 `cargo test -p abs_denco --features std`。
+- **非 `Global` allocator 没有 `FromIterator`**：标准库只为默认 allocator 实现
+  `FromIterator`，解码必须改用「`new_in(A::default())` + 逐个插入」。
+- **解码的 allocator 来源**：`TrDecodable` 没有额外上下文，只能要求 `A: Default`；
+  `&A` 这类没有默认实例的 allocator 需要先解到默认容器再迁移。
+- **BTree 的额外约束**：`BTreeMap` / `BTreeSet` 的 allocator 参数要求
+  `A: AllocatorClone`，其 `new_in` 还受 nightly `btreemap_alloc` 控制。
 - **`HashMap` / `HashSet` 字节不确定**：遍历顺序随机，不能做「字节相等」断言，只能做
   「解码后集合相等」。这一点与 serde 相同，需要在文档里写明。
 - **`BinaryHeap` 顺序**：线序不承诺堆序，往返只保证元素集合相同。
@@ -316,16 +328,19 @@ struct Payload {
 
 推荐路线是「**显式实现 + 共享 helper**」，与 serde 的策略一致，而不是 blanket impl：
 
-- 任何自带 `iter()` + `FromIterator` 的容器（包括用户自定义容器），只需两个约 30 行的
-  impl，visitor / helper 全部复用，不需要新写解码状态机；
+- 内建容器共享私有模块 `de/sink_.rs` 里的 `TrSeqSink` / `TrMapSink`，每个容器只写
+  20–30 行；这两个 trait 目前不导出，因为解码 visitor 也只是内部实现细节；
+- 第三方容器（`smallvec`、`indexmap`、`hashbrown`）受孤儿规则限制，不能由用户侧直接
+  为它们实现 `TrEncodable` / `TrDecodable`（两个 trait 都在 `abs_denco`）；只能由
+  `abs_denco` 以可选 feature 提供实现，或由用户在自己的 crate 里用 newtype 适配；
+- 用户为**本地**容器手写 `TrDecodable` 时，可以直接使用公开的 `SeqAccess` /
+  `MapAccess` / `Visitor`，或者自己按「空容器 + 逐个插入」的循环实现；
 - 不能用
   `impl<C: 某个容器 trait> TrEncodable for C` 的 blanket impl：它会与现有的
-  `Vec<T>`、`[T; N]` 等具体实现重叠，除非把全部实现都改成经该 trait 转发，改动面远大于
-  收益；
-- 如果需要给**本地**容器减少样板，可以再导出一个 `impl_seq_container!` /
-  `impl_map_container!` 宏（`#[macro_export]`，内部调用公开 helper），但那是锦上添花；
-- 第三方容器（`smallvec`、`indexmap`、`hashbrown`）受孤儿规则限制，只能由 `abs_denco`
-  以可选 feature 的方式提供实现，或由用户在自己的 crate 里用 newtype 适配。
+  `Vec<T>`、`[T; N]` 等具体实现重叠，除非把全部实现都改成经该 trait 转发，
+  改动面远大于收益；
+- 如果以后要把构造抽象开放给第三方，可以把两个 sink trait 与对应 visitor 导出成
+  受支持的扩展 API，但那需要单独讨论。
 
 ## 7. 实施顺序（已完成）
 
@@ -351,4 +366,70 @@ $ cargo test  -p abs_denco --all-features
 $ cargo test  -p mp_denco --test containers_                # 9 passed
 $ cargo test  -p mp_denco                                   # 全量无回归
 $ cargo clippy -p abs_denco --all-features --all-targets -- -D warnings
+```
+
+## 9. allocator 泛化（`feat/allocator-generic`）
+
+**结论**：所有容器（`Vec` / `Box` / 五个 `alloc::collections` 容器 / `HashMap` /
+`HashSet` / `Rc` / `Arc`）的实现都按 `A: Allocator` 泛化，不再只覆盖 `Global`。
+解码额外要求 `A: Default`，`BTreeMap` / `BTreeSet` 还要求 `A: AllocatorClone`。
+
+### 9.1 为什么不能沿用 `FromIterator`
+
+标准库中 `FromIterator` 只对默认 allocator 的容器有实现（`Vec<T>`、
+`VecDeque<T>`、`BTreeMap<K, V>`、`HashMap<K, V, S>` …），自定义 `A` 没有对应
+impl。解码因此改为两个内部构造 trait：
+
+```rust
+pub trait TrSeqSink<T>: Sized {
+    fn empty_() -> Self;
+    fn push_(&mut self, item: T);
+}
+
+pub trait TrMapSink<K, V>: Sized {
+    fn empty_() -> Self;
+    fn insert_(&mut self, key: K, value: V);
+}
+```
+
+它们放在私有模块 `de/sink_.rs`，为每个容器实现；visitor 遍历元素后调用
+`push_` / `insert_`。这样解码与 allocator 无关的部分仍然只写一遍。
+
+### 9.2 allocator 实例从哪来
+
+`TrDecodable` 没有参数可以携带 allocator，所以内建实现统一用
+`A::default()` 创建空容器。这带来两个已知限制：
+
+1. `A: Default` 是硬约束；`&A`、需要运行时句柄的 allocator 不满足。
+   需要这类 allocator 时，应先解码到默认 allocator 的容器，再自行迁移，或未来
+   增加携带 allocator 的 `TrDecodableSeed`。
+2. 每次解码都会新建一个 allocator 实例；allocator 若带状态，调用方需要确保
+   `Default` 得到的实例与实际使用场景一致。
+
+### 9.3 nightly 特性
+
+当前工具链（1.101.0-nightly）上：
+
+- `Allocator` trait、`Vec<T, A>` / `Box<T, A>` 已稳定（1.100）；
+- `VecDeque` / `LinkedList` / `BinaryHeap` / `HashMap` / `HashSet` / `Rc` / `Arc`
+  的 allocator 参数与 `new_in` / `with_hasher_in` 仍受 `allocator_ext` 控制；
+- `BTreeMap` / `BTreeSet` 的 allocator 参数要求 `AllocatorClone`，`new_in` 还需要
+  `btreemap_alloc`。
+
+因此 crate 无条件开启 `#![feature(allocator_ext)]`（`Arc` 的无条件泛化实现也需要它），
+`btreemap_alloc` 则仅在 `alloc-collections` feature 下开启。如果未来这些 API 稳定，
+可以删除对应的 feature 属性。
+
+### 9.4 验证
+
+`mp_denco/tests/containers_.rs` 新增了 `custom_allocator_containers_`：
+一个只转发给 `Global`、同时统计 `allocate` 次数的 `CountingAlloc`（实现了
+`Allocator` 与 `AllocatorClone`）。测试覆盖全部容器 + `Box` / `Rc` / `Arc` 的
+往返、与 `Global` 版本的字节一致性，并断言分配计数确实增长。
+
+```console
+$ cargo test -p mp_denco --test containers_     # 10 passed
+$ cargo test -p abs_denco --all-features
+$ cargo clippy -p abs_denco --all-features --all-targets -- -D warnings
+$ cargo clippy -p mp_denco --all-targets -- -D warnings
 ```
