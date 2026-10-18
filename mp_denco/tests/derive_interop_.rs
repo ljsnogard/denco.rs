@@ -12,7 +12,7 @@ use core::{
 };
 use std::{sync::Arc, task::Waker};
 
-use abs_cancel::{NonCancellableToken, TrMayCancel};
+use abs_cancel::TrMayCancel;
 use abs_denco::{de::TrDecodable, ser::TrEncodable};
 use denco_macro::{TrDecodable, TrEncodable};
 use mp_denco::{MpDecoder, MpEncoder};

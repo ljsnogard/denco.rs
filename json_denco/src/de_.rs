@@ -5,7 +5,8 @@
 //! 一律解码成 owned 值，不借用读端内存。
 //!
 //! 长字符串等批量读取的效率由 [`TrBuffRead`] 的提供者负责：解码器只按语法
-//! 需要向读端借段，不额外复制一层流缓冲。
+//! 需要向读端借段，不额外复制一层流缓冲。字符串内容会先用 `iter_slices()`
+//! 预览段内普通字符并批量搬移，遇到引号、转义或控制字符再逐字节处理。
 //!
 //! 对同一个解码器的 `&mut` 引用实现了 [`TrDecoder`]，因此多消息流既可以复用
 //! 同一个解码器，也可以在每个完整顶层值后新建解码器：
@@ -23,7 +24,10 @@
 use alloc::{format, string::String, vec::Vec};
 use core::str;
 
-use abs_buff::{Demand, TrBuffRead, buffer::TrBuffSegmRef};
+use abs_buff::{
+    Demand, TrBuffRead,
+    buffer::{TrBuffSegmRef, TrBuffSegmView},
+};
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use abs_denco::{
     de::{EnumAccess, MapAccess, SeqAccess, TrDecodableSeed, TrDecoder, VariantAccess, Visitor},
@@ -234,6 +238,91 @@ where
     Ok(value)
 }
 
+/// 一次字符串扫描的结果。
+enum StringRun {
+    /// 当前段全部是普通字符，已经搬完，需要继续读下一段。
+    More,
+    /// 下一个字符是引号、反斜杠或控制字符，留给慢路径处理。
+    Special,
+}
+
+/// 字符串快速路径每次最多向读端请求的字节数。
+///
+/// 这不是解码器缓冲：借到的段只用于预览和一次性搬移，段内未消费的字节会在
+/// 段回收时留在读端。
+const STRING_RUN_: usize = 4096;
+
+/// 预览当前段，把引号/反斜杠/控制字符之前的普通字节一次性搬进 `out`。
+///
+/// 返回 [`StringRun::Special`] 表示段首（或搬移后的下一个字节）是特殊字符；
+/// 返回 [`StringRun::More`] 表示当前段已全部搬完，需要继续借段。
+async fn read_string_run_async_<'r, R, C>(
+    de: &mut JsonDecoder<'r, R>,
+    out: &mut Vec<u8>,
+    cancel: C,
+) -> Result<StringRun, JsonError>
+where
+    R: TrBuffRead<u8> + 'r,
+    C: TrCancellationToken,
+{
+    if cancel.is_cancelled() {
+        return Err(JsonError::new("operation cancelled"));
+    }
+    let demand = Demand::no_more_than(STRING_RUN_);
+    let mut some = de
+        .reader_
+        .read_async(&demand)
+        .may_cancel_with(cancel.child_token())
+        .await;
+    let segm = match some.as_mut().pick_left() {
+        Some(segm) => segm,
+        None => {
+            de.ended_ = true;
+            de.end_err_ = some.pick_right().map(JsonError::buff_read);
+            return Err(de.end_err_.take().unwrap_or_else(unexpected_eof_));
+        }
+    };
+
+    let mut total = 0usize;
+    let mut safe = 0usize;
+    let mut special = false;
+    for slice in segm.iter_slices() {
+        total += slice.len();
+        if let Some(pos) = slice
+            .iter()
+            .position(|&byte| byte == b'"' || byte == b'\\' || byte < 0x20)
+        {
+            safe += pos;
+            special = true;
+            break;
+        }
+        safe += slice.len();
+    }
+    if total == 0 {
+        return Err(JsonError::new("buff read returned an empty segment"));
+    }
+
+    if safe > 0 {
+        let start = out.len();
+        out.resize(start + safe, 0);
+        let moved = segm.move_items_to_as_buff(&mut out[start..]);
+        out.truncate(start + moved);
+        if moved == 0 {
+            return Err(JsonError::new("buff read returned an empty segment"));
+        }
+        if moved < safe {
+            // 理论上游不会发生；保守地让外层继续从剩余字节读起。
+            return Ok(StringRun::More);
+        }
+    }
+
+    if special {
+        Ok(StringRun::Special)
+    } else {
+        Ok(StringRun::More)
+    }
+}
+
 /// 读取一个 JSON 字符串（调用方已经确认下一个非空白字符是 `"`）。
 async fn read_string_value_async_<'r, R, C>(
     de: &mut JsonDecoder<'r, R>,
@@ -247,6 +336,14 @@ where
     expect_byte_async_(de, b'"', cancel.child_token()).await?;
     let mut out: Vec<u8> = Vec::new();
     loop {
+        // 快速路径：一次预览并搬移一整段普通字符。若段首就是特殊字符，
+        // 或回推字节还存在，则直接进入下面的单字节处理。
+        if de.pending_.is_none() {
+            match read_string_run_async_(de, &mut out, cancel.child_token()).await? {
+                StringRun::More => continue,
+                StringRun::Special => {}
+            }
+        }
         let byte = read_byte_async_(de, cancel.child_token()).await?;
         match byte {
             b'"' => break,

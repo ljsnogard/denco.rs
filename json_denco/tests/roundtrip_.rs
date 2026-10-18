@@ -213,3 +213,33 @@ fn per_value_decoder_stream_() {
         assert_eq!(&got, expected);
     }
 }
+
+/// 验证超过单次段预览长度的长字符串与转义混合往返。
+/// Verify a long string with escapes round-trips across segment previews.
+///
+/// - 测试目标 / Goal：字符串快速路径跨多个 `read_async` 段时，引号、反斜杠
+///   与控制字符仍由慢路径正确处理。
+/// - 手段 / Method：构造约 10 KiB、每隔约 1 KiB 插入转义字符的字符串，编码后
+///   分别用 `json_denco` 与 `serde_json` 解码。
+/// - 判断 / Assert：两条解码路径都得到原字符串。
+#[test]
+fn long_string_with_escapes_() {
+    let mut value = String::new();
+    for index in 0..10_000 {
+        if index % 997 == 0 {
+            value.push('"');
+            value.push('\\');
+            value.push('\n');
+            value.push('中');
+        } else {
+            value.push('a');
+        }
+    }
+    let json_bytes = encode_to_vec_(&value);
+    let from_denco: String = decode_from_slice_(&json_bytes);
+    assert_eq!(from_denco, value);
+
+    let from_json: String =
+        serde_json::from_slice(&json_bytes).expect("serde_json 应能解析长转义字符串");
+    assert_eq!(from_json, value);
+}
