@@ -422,13 +422,18 @@ pub trait TrMapSink<K, V>: Sized {
 
 ### 9.4 验证
 
-`mp_denco/tests/containers_.rs` 新增了 `custom_allocator_containers_`：
-一个只转发给 `Global`、同时统计 `allocate` 次数的 `CountingAlloc`（实现了
-`Allocator` 与 `AllocatorClone`）。测试覆盖全部容器 + `Box` / `Rc` / `Arc` 的
-往返、与 `Global` 版本的字节一致性，并断言分配计数确实增长。
+`mp_denco/tests/containers_.rs` 新增了两条与 allocator 有关的测试：
+
+- `custom_allocator_containers_`：一个只转发给 `Global`、同时统计 `allocate`
+  次数的 `CountingAlloc`（实现了 `Allocator` 与 `AllocatorClone`），覆盖全部容器
+  + `Box` / `Rc` / `Arc` 的往返、与 `Global` 版本的字节一致性，并断言分配计数增长；
+- `allocator_a1_encode_a2_decode_`：用类型级编号的两个 allocator
+  `TaggedAlloc<0>`（A1）与 `TaggedAlloc<1>`（A2）演示「A1 编码、A2 解码」。
+  解码值与源值相同、字节与 `Global` 版本一致，且解码期间只有 A2 的分配计数增长。
+  这同时说明了 allocator 身份不进入线格式，以及解码确实用目标 allocator 重新分配。
 
 ```console
-$ cargo test -p mp_denco --test containers_     # 10 passed
+$ cargo test -p mp_denco --test containers_     # 11 passed
 $ cargo test -p abs_denco --all-features
 $ cargo clippy -p abs_denco --all-features --all-targets -- -D warnings
 $ cargo clippy -p mp_denco --all-targets -- -D warnings

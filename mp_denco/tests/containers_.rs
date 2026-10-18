@@ -35,6 +35,32 @@ use abs_cancel::{NonCancellableToken, TrMayCancel};
 use abs_denco::{de::TrDecodable, ser::TrEncodable};
 use mp_denco::{MpDecoder, MpEncoder};
 
+/// A1 / A2 两个 allocator 的分配次数。
+///
+/// 下标 0 是 A1，下标 1 是 A2；下标只用于观察，不参与编码。
+static A1_A2_ALLOCS_: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
+
+/// 带类型级编号的计数 allocator。
+///
+/// `TaggedAlloc<0>` 与 `TaggedAlloc<1>` 是**两个不同的 allocator 类型**，
+/// 但它们的分配都转发给 `Global`；区别只体现在计数表的下标上。
+#[derive(Clone, Default)]
+struct TaggedAlloc<const ID: usize>;
+
+// SAFETY: 分配全部转发给 `Global`，释放的指针与布局也来自同一个 `Global`
+// 分配，没有跨 allocator 释放。
+unsafe impl<const ID: usize> Allocator for TaggedAlloc<ID> {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        A1_A2_ALLOCS_[ID].fetch_add(1, Ordering::Relaxed);
+        Global.allocate(layout)
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        // SAFETY: 由调用方保证该块来自本 allocator（即 `Global`）且只释放一次。
+        unsafe { Global.deallocate(ptr, layout) }
+    }
+}
+
 /// 自定义 allocator 的分配次数计数。
 static CUSTOM_ALLOCS_: AtomicUsize = AtomicUsize::new(0);
 
@@ -531,4 +557,65 @@ fn custom_allocator_containers_() {
         after > before,
         "自定义 allocator 应当被实际使用：before={before}, after={after}"
     );
+}
+
+/// 测试「A1 编码、A2 解码」是否可行。
+/// Test whether a container encoded with allocator A1 can be decoded into A2.
+///
+/// - 手段：`TaggedAlloc<0>` 记作 A1、`TaggedAlloc<1>` 记作 A2。用 A1 构造
+///   `Vec<u32>` 并编码；再把同一段字节解码成 `Vec<u32, TaggedAlloc<1>>`。
+/// - 判断：解码值与源值相同；字节与 `Global` 版本逐字节一致（allocator 身份
+///   不进入线格式）；解码后 A2 的分配计数增长、A1 的计数保持不变，说明解码
+///   确实是用 A2 重新分配，而不是复用 A1。这条测试证明不同 allocator 之间的
+///   编码/解码是可行的。
+///
+/// - Means: `TaggedAlloc<0>` is A1 and `TaggedAlloc<1>` is A2. Build a
+///   `Vec<u32>` with A1 and encode it, then decode the same bytes into
+///   `Vec<u32, TaggedAlloc<1>>`.
+/// - Verdict: the decoded value equals the source; the bytes match the `Global`
+///   version exactly (allocator identity is not on the wire); after decoding,
+///   A2's allocation counter grew while A1's stayed put, proving the decode
+///   really re-allocated with A2. This demonstrates A1-to-A2 encode/decode is
+///   feasible.
+#[test]
+fn allocator_a1_encode_a2_decode_() {
+    let a1_before = A1_A2_ALLOCS_[0].load(Ordering::Relaxed);
+
+    // 用 A1 构造源容器。
+    let mut source: Vec<u32, TaggedAlloc<0>> = Vec::new_in(TaggedAlloc::<0>);
+    source.push(1u32);
+    source.push(2u32);
+    source.push(3u32);
+    assert!(
+        A1_A2_ALLOCS_[0].load(Ordering::Relaxed) > a1_before,
+        "A1 应当参与源容器的构造"
+    );
+
+    // 编码：allocator 身份不进入字节。
+    let bytes = encode_(&source);
+    assert_eq!(
+        bytes,
+        encode_(&vec![1u32, 2, 3]),
+        "字节应与 Global 版本一致"
+    );
+
+    // 解码到 A2；解码期间 A1 不应再分配。
+    let a1_before_decode = A1_A2_ALLOCS_[0].load(Ordering::Relaxed);
+    let a2_before_decode = A1_A2_ALLOCS_[1].load(Ordering::Relaxed);
+    let got: Vec<u32, TaggedAlloc<1>> = decode_(&bytes);
+
+    assert_eq!(got.as_slice(), &[1u32, 2, 3], "A2 容器应装回同样的值");
+    assert!(
+        A1_A2_ALLOCS_[1].load(Ordering::Relaxed) > a2_before_decode,
+        "A2 应当参与解码构造"
+    );
+    assert_eq!(
+        A1_A2_ALLOCS_[0].load(Ordering::Relaxed),
+        a1_before_decode,
+        "解码不应当再用 A1 分配"
+    );
+
+    // 同一段字节也能解回默认 allocator 的容器。
+    let global: Vec<u32> = decode_(&bytes);
+    assert_eq!(global, vec![1u32, 2, 3]);
 }
