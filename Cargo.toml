@@ -3,6 +3,7 @@ members = [
     "abs_denco",
     "denco_macro",
     "mp_denco",
+    "json_denco",
 ]
 resolver = "3"
 

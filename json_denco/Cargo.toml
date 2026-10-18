@@ -1,0 +1,35 @@
+[package]
+name = "json_denco"
+version = "0.1.0"
+edition = "2024"
+description = "A streaming JSON format built on abs_denco and abs_buff."
+
+[dependencies]
+abs_buff = { path = "../../buffex.rs/abs_buff" }
+abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
+abs_denco = { path = "../abs_denco" }
+gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
+
+[dev-dependencies]
+abs_buff = { path = "../../buffex.rs/abs_buff" }
+abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
+abs_denco = { path = "../abs_denco" }
+async-net = "2.0.*"
+buffex_compio_adapt = { path = "../../buffex.rs/buffex_compio_adapt" }
+buffex_smol_adapt = { path = "../../buffex.rs/buffex_smol_adapt" }
+buffex_tokio_adapt = { path = "../../buffex.rs/buffex_tokio_adapt" }
+cantok_rs = { path = "../../cancel_rs/cantok_rs" }
+compio = { version = "0.19.*", features = ["macros", "net", "runtime", "time"] }
+denco_macro = { path = "../denco_macro" }
+futures-lite = "2.6.*"
+gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde_json = "1.0.*"
+smol = "2.0.*"
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "time",
+] }
