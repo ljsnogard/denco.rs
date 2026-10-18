@@ -274,9 +274,12 @@ async fn tcp_cancel_partial_json_() {
             };
             let cancel = async {
                 tokio::time::sleep(Duration::from_millis(20)).await;
+                eprintln!("TEST: cancelling");
                 source.cancel();
+                eprintln!("TEST: cancelled");
             };
             let (out, ()) = tokio::join!(decode, cancel);
+            eprintln!("TEST: decode returned {:?}", out.as_ref().err().map(|e| e.to_string()));
             let err = out.expect_err("部分 JSON park 被取消后应返回 Err");
             let message = err.to_string();
             assert!(

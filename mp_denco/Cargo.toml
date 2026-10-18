@@ -5,19 +5,18 @@ edition = "2024"
 description = "A minimal MessagePack format built on abs_denco."
 
 [dependencies]
-abs_buff = { path = "../../buffex.rs/abs_buff" }
+abs_buff = { git = "https://gitee.com/lino_snsalias/buffex.rs.git" }
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 abs_denco = { path = "../abs_denco" }
 gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 
 [dev-dependencies]
-abs_buff = { path = "../../buffex.rs/abs_buff" }
 anylr = { git = "https://gitee.com/lino_snsalias/anylr.rs.git", branch = "dev/0.2.0" }
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 abs_denco = { path = "../abs_denco" }
-buffex = { path = "../../buffex.rs/buffex" }
-buffex_tokio_adapt = { path = "../../buffex.rs/buffex_tokio_adapt" }
-cantok_rs = { path = "../../cancel_rs/cantok_rs" }
+buffex = { git = "https://gitee.com/lino_snsalias/buffex.rs.git" }
+buffex_tokio_adapt = { git = "https://gitee.com/lino_snsalias/buffex.rs.git" }
+cantok_rs = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 denco_macro = { path = "../denco_macro" }
 gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 rmp-serde = "1.3.1"
