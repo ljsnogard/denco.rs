@@ -288,6 +288,14 @@ struct Renamed {
 #[denco(transparent)]
 struct Transparent(U64Val);
 
+/// 与 `Newtype` 同模块的第二个 newtype，用于验证解码辅助类型按类型名隔离。
+#[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
+struct NewtypeA(U64Val);
+
+/// 与 `Newtype` 同模块的第三个 newtype，用于验证解码辅助类型按类型名隔离。
+#[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
+struct NewtypeB(StrVal);
+
 #[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
 pub struct PublicRecord {
     pub id: U64Val,
@@ -364,6 +372,22 @@ fn tuple_and_newtype_roundtrip_() {
     let newtype = Newtype(U64Val(9));
     let got: Newtype = decode_(&encode_(&newtype));
     assert_eq!(got, newtype);
+}
+
+/// 验证同一模块内的多个 newtype struct 各自生成独立的解码辅助类型。
+///
+/// - 手段：`Newtype`、`NewtypeA` 与 `NewtypeB` 都在本模块派生 `TrDecodable`，
+///   分别编码后解码。
+/// - 判断：三个 newtype 都能编译并往返成功；辅助类型不再因固定名字互相覆盖。
+#[test]
+fn multiple_newtype_structs_in_one_module_() {
+    let a = NewtypeA(U64Val(7));
+    let got: NewtypeA = decode_(&encode_(&a));
+    assert_eq!(got, a);
+
+    let b = NewtypeB(StrVal(String::from("x")));
+    let got: NewtypeB = decode_(&encode_(&b));
+    assert_eq!(got, b);
 }
 
 /// 验证泛型结构体的派生往返。

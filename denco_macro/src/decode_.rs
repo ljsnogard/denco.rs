@@ -75,19 +75,23 @@ fn decode_unit_struct_(model: &TypeModel, prefix: &Ident) -> Parts {
     let visitor_ident = name_(prefix, "Visitor");
     let visitor = visitor_def_(model, &visitor_ident);
     let visitor_expr = visitor_expr_(model, &visitor_ident);
-    let visitor_impl = visitor_impl_(model, &visitor_ident, quote! {
+    let visitor_impl = visitor_impl_(
+        model,
+        &visitor_ident,
+        quote! {
 
-        fn visit_unit<'a, E>(
-            self,
-        ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, E>>
-        where
-            Self: 'a,
-            Self::Value: 'a,
-            E: abs_denco::de::Error + 'a,
-        {
-            ::core::future::ready(::core::result::Result::Ok(#ident))
-        }
-    });
+            fn visit_unit<'a, E>(
+                self,
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, E>>
+            where
+                Self: 'a,
+                Self::Value: 'a,
+                E: abs_denco::de::Error + 'a,
+            {
+                ::core::future::ready(::core::result::Result::Ok(#ident))
+            }
+        },
+    );
     let (entry, entry_impl) = decode_entry_(
         model,
         prefix,
@@ -131,9 +135,9 @@ fn decode_newtype_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldMode
         return (entry, entry_impl);
     }
 
-    let newtype_op = format_ident!("DecodeNewtypeOp");
+    let newtype_op = format_ident!("{prefix}NewtypeOp");
     let newtype_fn = format_ident!("{prefix}NewtypeOpFn");
-    let newtype_async = format_ident!("DecodeNewtypeOpAsync");
+    let newtype_async = format_ident!("{prefix}NewtypeOpAsync");
     let mut generics = model.generics_.clone();
     generics.params.insert(0, parse_quote!('de));
     generics.params.insert(1, parse_quote!('a));
@@ -159,22 +163,26 @@ fn decode_newtype_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldMode
 
     let visitor = visitor_def_(model, &visitor_ident);
     let visitor_expr = visitor_expr_(model, &visitor_ident);
-    let visitor_impl = visitor_impl_(model, &visitor_ident, quote! {
+    let visitor_impl = visitor_impl_(
+        model,
+        &visitor_ident,
+        quote! {
 
-        fn visit_newtype_struct<'a, D>(
-            self,
-            de: D,
-        ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, D::Error>>
-        where
-            'de: 'a,
-            Self: 'a,
-            Self::Value: 'a,
-            D: abs_denco::de::TrDecoder<'de> + 'a,
-            D::Error: 'a,
-        {
-            #newtype_async::<'de, 'a, 'a, #(#type_args,)* D, #(#const_args,)*>::new(de)
-        }
-    });
+            fn visit_newtype_struct<'a, D>(
+                self,
+                de: D,
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, D::Error>>
+            where
+                'de: 'a,
+                Self: 'a,
+                Self::Value: 'a,
+                D: abs_denco::de::TrDecoder<'de> + 'a,
+                D::Error: 'a,
+            {
+                #newtype_async::<'de, 'a, 'a, #(#type_args,)* D, #(#const_args,)*>::new(de)
+            }
+        },
+    );
     let (entry, entry_impl) = decode_entry_(
         model,
         prefix,
@@ -199,12 +207,14 @@ fn decode_newtype_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldMode
 fn decode_tuple_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldModel]) -> Parts {
     let model_name = &model.rename_;
     let visitor_ident = name_(prefix, "Visitor");
-    let (seq_method, seq_items) =
-        seq_helper_(model, None, fields, false, &name_(prefix, "SeqOp"));
+    let (seq_method, seq_items) = seq_helper_(model, None, fields, false, &name_(prefix, "SeqOp"));
     let visitor = visitor_def_(model, &visitor_ident);
     let visitor_impl = visitor_impl_(model, &visitor_ident, seq_method);
     let visitor_expr = visitor_expr_(model, &visitor_ident);
-    let len = fields.iter().filter(|field| !field.skip_encoding_ && !field.is_phantom_).count();
+    let len = fields
+        .iter()
+        .filter(|field| !field.skip_encoding_ && !field.is_phantom_)
+        .count();
     let (entry, entry_impl) = decode_entry_(
         model,
         prefix,
@@ -236,16 +246,17 @@ fn decode_named_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldModel]
         &name_(prefix, "FieldVisitor"),
         &name_(prefix, "FieldOp"),
     );
-    let (map_method, map_items) =
-        map_helper_(model, None, fields, &name_(prefix, "MapOp"), &name_(prefix, "FieldSeed"), &name_(prefix, "Field"));
-    let (seq_method, seq_items) =
-        seq_helper_(model, None, fields, true, &name_(prefix, "SeqOp"));
-    let visitor = visitor_def_(model, &visitor_ident);
-    let visitor_impl = visitor_impl_(
+    let (map_method, map_items) = map_helper_(
         model,
-        &visitor_ident,
-        quote! { #map_method #seq_method },
+        None,
+        fields,
+        &name_(prefix, "MapOp"),
+        &name_(prefix, "FieldSeed"),
+        &name_(prefix, "Field"),
     );
+    let (seq_method, seq_items) = seq_helper_(model, None, fields, true, &name_(prefix, "SeqOp"));
+    let visitor = visitor_def_(model, &visitor_ident);
+    let visitor_impl = visitor_impl_(model, &visitor_ident, quote! { #map_method #seq_method });
     let visitor_expr = visitor_expr_(model, &visitor_ident);
     let field_names: Vec<_> = fields
         .iter()
@@ -284,7 +295,13 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
     let variant_seed = name_(prefix, "VariantSeed");
     let variant_visitor = name_(prefix, "VariantVisitor");
     let variant_op = name_(prefix, "VariantOp");
-    let variant_items = variant_key_items_(variants, &variant_enum, &variant_seed, &variant_visitor, &variant_op);
+    let variant_items = variant_key_items_(
+        variants,
+        &variant_enum,
+        &variant_seed,
+        &variant_visitor,
+        &variant_op,
+    );
 
     let mut extra_items = Vec::new();
     let mut arms = Vec::new();
@@ -319,8 +336,13 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
             }
             FieldsModel::Unnamed(fields) => {
                 let visitor_ident = format_ident!("{prefix}V{vindex}Visitor");
-                let (seq_method, seq_items) =
-                    seq_helper_(model, Some(variant), fields, matches!(variant.fields_, FieldsModel::Named(_)), &format_ident!("{prefix}V{vindex}SeqOp"));
+                let (seq_method, seq_items) = seq_helper_(
+                    model,
+                    Some(variant),
+                    fields,
+                    matches!(variant.fields_, FieldsModel::Named(_)),
+                    &format_ident!("{prefix}V{vindex}SeqOp"),
+                );
                 let visitor = visitor_def_(model, &visitor_ident);
                 let visitor_impl = visitor_impl_(model, &visitor_ident, seq_method);
                 extra_items.push(quote! {
@@ -328,7 +350,10 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
                     #visitor_impl
                     #seq_items
                 });
-                let len = fields.iter().filter(|field| !field.skip_encoding_ && !field.is_phantom_).count();
+                let len = fields
+                    .iter()
+                    .filter(|field| !field.skip_encoding_ && !field.is_phantom_)
+                    .count();
                 let visitor_expr = visitor_expr_(model, &visitor_ident);
                 arms.push(quote! {
                     #variant_enum::#variant_variant => access
@@ -346,16 +371,24 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
                     &format_ident!("{prefix}V{vindex}FieldVisitor"),
                     &format_ident!("{prefix}V{vindex}FieldOp"),
                 );
-                let (map_method, map_items) =
-                    map_helper_(model, Some(variant), fields, &format_ident!("{prefix}V{vindex}MapOp"), &format_ident!("{prefix}V{vindex}FieldSeed"), &format_ident!("{prefix}V{vindex}Field"));
-                let (seq_method, seq_items) =
-                    seq_helper_(model, Some(variant), fields, matches!(variant.fields_, FieldsModel::Named(_)), &format_ident!("{prefix}V{vindex}SeqOp"));
-                let visitor = visitor_def_(model, &visitor_ident);
-                let visitor_impl = visitor_impl_(
+                let (map_method, map_items) = map_helper_(
                     model,
-                    &visitor_ident,
-                    quote! { #map_method #seq_method },
+                    Some(variant),
+                    fields,
+                    &format_ident!("{prefix}V{vindex}MapOp"),
+                    &format_ident!("{prefix}V{vindex}FieldSeed"),
+                    &format_ident!("{prefix}V{vindex}Field"),
                 );
+                let (seq_method, seq_items) = seq_helper_(
+                    model,
+                    Some(variant),
+                    fields,
+                    matches!(variant.fields_, FieldsModel::Named(_)),
+                    &format_ident!("{prefix}V{vindex}SeqOp"),
+                );
+                let visitor = visitor_def_(model, &visitor_ident);
+                let visitor_impl =
+                    visitor_impl_(model, &visitor_ident, quote! { #map_method #seq_method });
                 extra_items.push(quote! {
                     #field_items
                     #visitor
@@ -429,23 +462,30 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
     let visitor_ident = name_(prefix, "EnumVisitor");
     let visitor = visitor_def_(model, &visitor_ident);
     let visitor_expr = visitor_expr_(model, &visitor_ident);
-    let visitor_impl = visitor_impl_(model, &visitor_ident, quote! {
+    let visitor_impl = visitor_impl_(
+        model,
+        &visitor_ident,
+        quote! {
 
-        fn visit_enum<'a, A>(
-            self,
-            data: A,
-        ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, A::Error>>
-        where
-            'de: 'a,
-            Self: 'a,
-            Self::Value: 'a,
-            A: abs_denco::de::EnumAccess<'de> + 'a,
-            A::Error: 'a,
-        {
-            #dispatch_async::<'de, 'a, 'a, #(#type_args,)* A, #(#const_args,)*>::new(data)
-        }
-    });
-    let variant_names: Vec<_> = variants.iter().map(|variant| variant.name_.as_str()).collect();
+            fn visit_enum<'a, A>(
+                self,
+                data: A,
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, A::Error>>
+            where
+                'de: 'a,
+                Self: 'a,
+                Self::Value: 'a,
+                A: abs_denco::de::EnumAccess<'de> + 'a,
+                A::Error: 'a,
+            {
+                #dispatch_async::<'de, 'a, 'a, #(#type_args,)* A, #(#const_args,)*>::new(data)
+            }
+        },
+    );
+    let variant_names: Vec<_> = variants
+        .iter()
+        .map(|variant| variant.name_.as_str())
+        .collect();
     let (entry, entry_impl) = decode_entry_(
         model,
         prefix,
@@ -545,11 +585,7 @@ fn decode_entry_(
     (helper, impl_)
 }
 
-fn add_decode_bounds_(
-    generics: &mut syn::Generics,
-    type_params: &[Ident],
-    decoder: TokenStream,
-) {
+fn add_decode_bounds_(generics: &mut syn::Generics, type_params: &[Ident], decoder: TokenStream) {
     let where_clause = generics.make_where_clause();
     where_clause.predicates.push(parse_quote!('de: 'a));
     for param in type_params {
@@ -732,7 +768,6 @@ fn field_key_items_(
         }
     }
 }
-
 
 fn map_helper_(
     model: &TypeModel,
@@ -957,12 +992,18 @@ fn seq_helper_(
             "struct variant {}::{} with {} fields",
             target_ty,
             variant.ident_,
-            fields.iter().filter(|f| !f.skip_decoding_ && !f.is_phantom_).count()
+            fields
+                .iter()
+                .filter(|f| !f.skip_decoding_ && !f.is_phantom_)
+                .count()
         ),
         None => format!(
             "struct {} with {} fields",
             target_ty,
-            fields.iter().filter(|f| !f.skip_decoding_ && !f.is_phantom_).count()
+            fields
+                .iter()
+                .filter(|f| !f.skip_decoding_ && !f.is_phantom_)
+                .count()
         ),
     };
     for field in fields {
