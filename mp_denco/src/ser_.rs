@@ -18,7 +18,10 @@ use abs_denco::ser::{
 };
 use gen_mcf2::gen_may_cancel_future;
 
-use crate::MpError;
+use crate::{
+    MpError,
+    config_::{DefaultConfig, SerializerConfig, StructMapConfig, StructTupleConfig},
+};
 
 /// 栈上编码缓冲的最大长度。
 ///
@@ -366,14 +369,16 @@ where
 }
 
 #[gen_may_cancel_future(EncodeSeqHeaderOp, pub)]
-async fn encode_seq_header_async_<'w, W, C>(
+async fn encode_seq_header_async_<'w, W, S, C>(
     writer: &'w mut W,
     header: Result<ScalarBytes, MpError>,
     remaining: usize,
+    config: S,
     cancel: C,
-) -> Result<MpSeqEncoder<'w, W>, MpError>
+) -> Result<MpSeqEncoder<'w, W, S>, MpError>
 where
     W: TrBuffWrite<u8> + 'w,
+    S: SerializerConfig + 'w,
     C: TrCancellationToken,
 {
     let header = header?;
@@ -381,18 +386,21 @@ where
     Ok(MpSeqEncoder {
         writer_: writer,
         remaining_: remaining,
+        config_: config,
     })
 }
 
 #[gen_may_cancel_future(EncodeMapHeaderOp, pub)]
-async fn encode_map_header_async_<'w, W, C>(
+async fn encode_map_header_async_<'w, W, S, C>(
     writer: &'w mut W,
     header: Result<ScalarBytes, MpError>,
     remaining: usize,
+    config: S,
     cancel: C,
-) -> Result<MpMapEncoder<'w, W>, MpError>
+) -> Result<MpMapEncoder<'w, W, S>, MpError>
 where
     W: TrBuffWrite<u8> + 'w,
+    S: SerializerConfig + 'w,
     C: TrCancellationToken,
 {
     let header = header?;
@@ -400,18 +408,21 @@ where
     Ok(MpMapEncoder {
         writer_: writer,
         remaining_: remaining,
+        config_: config,
     })
 }
 
 #[gen_may_cancel_future(EncodeNewtypeVariantOp, pub)]
-async fn encode_newtype_variant_async_<'w, 'b, W, T, C>(
+async fn encode_newtype_variant_async_<'w, 'b, W, S, T, C>(
     writer: &'w mut W,
     variant: &'static str,
     value: &'b T,
+    config: S,
     cancel: C,
 ) -> Result<(), MpError>
 where
     W: TrBuffWrite<u8> + 'w,
+    S: SerializerConfig + 'w,
     T: ?Sized + TrEncodable + 'b,
     C: TrCancellationToken,
 {
@@ -419,20 +430,22 @@ where
     write_all_async_(writer, header.as_slice_(), cancel.child_token()).await?;
     write_str_async_(writer, variant, cancel.child_token()).await?;
     value
-        .encode_async(MpEncoder::new(writer))
+        .encode_async(MpEncoder::with_config(writer, config))
         .may_cancel_with(cancel)
         .await
 }
 
 #[gen_may_cancel_future(EncodeTupleVariantOp, pub)]
-async fn encode_tuple_variant_async_<'w, W, C>(
+async fn encode_tuple_variant_async_<'w, W, S, C>(
     writer: &'w mut W,
     variant: &'static str,
     len: usize,
+    config: S,
     cancel: C,
-) -> Result<MpSeqEncoder<'w, W>, MpError>
+) -> Result<MpSeqEncoder<'w, W, S>, MpError>
 where
     W: TrBuffWrite<u8> + 'w,
+    S: SerializerConfig + 'w,
     C: TrCancellationToken,
 {
     let map = map_header_(1)?;
@@ -443,63 +456,77 @@ where
     Ok(MpSeqEncoder {
         writer_: writer,
         remaining_: len,
+        config_: config,
     })
 }
 
 #[gen_may_cancel_future(EncodeStructVariantOp, pub)]
-async fn encode_struct_variant_async_<'w, W, C>(
+async fn encode_struct_variant_async_<'w, W, S, C>(
     writer: &'w mut W,
     variant: &'static str,
     len: usize,
+    config: S,
     cancel: C,
-) -> Result<MpMapEncoder<'w, W>, MpError>
+) -> Result<MpMapEncoder<'w, W, S>, MpError>
 where
     W: TrBuffWrite<u8> + 'w,
+    S: SerializerConfig + 'w,
     C: TrCancellationToken,
 {
     let map = map_header_(1)?;
     write_all_async_(writer, map.as_slice_(), cancel.child_token()).await?;
     write_str_async_(writer, variant, cancel.child_token()).await?;
-    let fields = map_header_(len)?;
+    let fields = if config.is_named() {
+        map_header_(len)?
+    } else {
+        array_header_(len)?
+    };
     write_all_async_(writer, fields.as_slice_(), cancel).await?;
     Ok(MpMapEncoder {
         writer_: writer,
         remaining_: len,
+        config_: config,
     })
 }
 
 #[gen_may_cancel_future(EncodeElementOp, pub)]
-async fn encode_element_async_<'w, 'b, W, T, C>(
+async fn encode_element_async_<'w, 'b, W, S, T, C>(
     writer: &'w mut W,
     value: &'b T,
+    config: S,
     cancel: C,
 ) -> Result<(), MpError>
 where
     W: TrBuffWrite<u8> + 'w,
+    S: SerializerConfig + 'w,
     T: ?Sized + TrEncodable + 'b,
     C: TrCancellationToken,
 {
     value
-        .encode_async(MpEncoder::new(writer))
+        .encode_async(MpEncoder::with_config(writer, config))
         .may_cancel_with(cancel)
         .await
 }
 
 #[gen_may_cancel_future(EncodeStructFieldOp, pub)]
-async fn encode_struct_field_async_<'w, 'b, W, T, C>(
+async fn encode_struct_field_async_<'w, 'b, W, S, T, C>(
     writer: &'w mut W,
     key: &'static str,
     value: &'b T,
+    config: S,
     cancel: C,
 ) -> Result<(), MpError>
 where
     W: TrBuffWrite<u8> + 'w,
+    S: SerializerConfig + 'w,
     T: ?Sized + TrEncodable + 'b,
     C: TrCancellationToken,
 {
-    write_str_async_(writer, key, cancel.child_token()).await?;
+    if config.is_named() {
+        write_str_async_(writer, key, cancel.child_token()).await?;
+    }
     value
-        .encode_async(MpEncoder::new(writer))
+        .encode_async(MpEncoder::with_config(writer, config))
         .may_cancel_with(cancel)
         .await
 }
@@ -507,12 +534,29 @@ where
 /// 把数据结构写入一个 [`TrBuffWrite`] 的 MessagePack 编码器。
 ///
 /// 构造时借用写端；所有标量方法都会先借出写段，再把栈上编码好的字节写入。
-pub struct MpEncoder<'w, W> {
+///
+/// 类型参数 `C` 选择结构体的编码方式：默认 [`DefaultConfig`] 把结构体写成
+/// 位置数组，[`StructMapConfig`] 把它写成带字段名的映射。配置会随嵌套编码
+/// （序列元素、映射值、枚举变体内部等）自动传播。
+///
+/// # Examples
+///
+/// ```
+/// use mp_denco::MpEncoder;
+///
+/// let mut storage = [0u8; 8];
+/// let mut sink: &mut [u8] = &mut storage;
+/// let _encoder = MpEncoder::new(&mut sink);
+/// ```
+pub struct MpEncoder<'w, W, C = DefaultConfig> {
     writer_: &'w mut W,
+    config_: C,
 }
 
-impl<'w, W> MpEncoder<'w, W> {
-    /// 借用 `writer` 构造编码器。
+impl<'w, W> MpEncoder<'w, W, DefaultConfig> {
+    /// 借用 `writer` 构造使用默认配置的编码器。
+    ///
+    /// 默认配置把结构体编码为位置数组，不写字段名。
     ///
     /// # Examples
     ///
@@ -524,24 +568,115 @@ impl<'w, W> MpEncoder<'w, W> {
     /// let _encoder = MpEncoder::new(&mut sink);
     /// ```
     pub fn new(writer: &'w mut W) -> Self {
-        Self { writer_: writer }
+        Self {
+            writer_: writer,
+            config_: DefaultConfig,
+        }
     }
 }
 
-impl<'w, W> TrEncoder for MpEncoder<'w, W>
+impl<'w, W, C> MpEncoder<'w, W, C>
+where
+    C: SerializerConfig,
+{
+    /// 用显式配置构造编码器。
+    ///
+    /// 通常不需要直接调用：可以先 [`MpEncoder::new`]，再链式调用
+    /// [`MpEncoder::with_struct_map`] 或 [`MpEncoder::with_struct_tuple`]。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mp_denco::{DefaultConfig, MpEncoder};
+    ///
+    /// let mut storage = [0u8; 8];
+    /// let mut sink: &mut [u8] = &mut storage;
+    /// let _encoder = MpEncoder::with_config(&mut sink, DefaultConfig);
+    /// ```
+    pub fn with_config(writer: &'w mut W, config: C) -> Self {
+        Self {
+            writer_: writer,
+            config_: config,
+        }
+    }
+
+    /// 返回当前配置的副本。
+    ///
+    /// 配置是 [`Copy`] 的；嵌套编码器会复制它来保持行为一致。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mp_denco::MpEncoder;
+    ///
+    /// let mut storage = [0u8; 8];
+    /// let mut sink: &mut [u8] = &mut storage;
+    /// let encoder = MpEncoder::new(&mut sink);
+    /// let _config = encoder.config();
+    /// ```
+    pub fn config(&self) -> C {
+        self.config_
+    }
+
+    /// 把结构体改为命名映射编码，并返回新的编码器。
+    ///
+    /// 内部配置保持不变；写端借用会转交给返回值，可以继续链式调用。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mp_denco::MpEncoder;
+    ///
+    /// let mut storage = [0u8; 8];
+    /// let mut sink: &mut [u8] = &mut storage;
+    /// let _encoder = MpEncoder::new(&mut sink).with_struct_map();
+    /// ```
+    pub fn with_struct_map(self) -> MpEncoder<'w, W, StructMapConfig<C>> {
+        MpEncoder {
+            writer_: self.writer_,
+            config_: StructMapConfig::new(self.config_),
+        }
+    }
+
+    /// 把结构体改为位置数组编码，并返回新的编码器。
+    ///
+    /// 默认配置已经是位置数组；该方法用于在 [`StructMapConfig`] 之上
+    /// 显式恢复紧凑表示。内部配置保持不变。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mp_denco::MpEncoder;
+    ///
+    /// let mut storage = [0u8; 8];
+    /// let mut sink: &mut [u8] = &mut storage;
+    /// let _encoder = MpEncoder::new(&mut sink)
+    ///     .with_struct_map()
+    ///     .with_struct_tuple();
+    /// ```
+    pub fn with_struct_tuple(self) -> MpEncoder<'w, W, StructTupleConfig<C>> {
+        MpEncoder {
+            writer_: self.writer_,
+            config_: StructTupleConfig::new(self.config_),
+        }
+    }
+}
+
+impl<'w, W, C> TrEncoder for MpEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig + 'w,
 {
     type Ok = ();
     type Error = MpError;
 
-    type EncodeSeq = MpSeqEncoder<'w, W>;
-    type EncodeTuple = MpSeqEncoder<'w, W>;
-    type EncodeTupleStruct = MpSeqEncoder<'w, W>;
-    type EncodeTupleVariant = MpSeqEncoder<'w, W>;
-    type EncodeMap = MpMapEncoder<'w, W>;
-    type EncodeStruct = MpMapEncoder<'w, W>;
-    type EncodeStructVariant = MpMapEncoder<'w, W>;
+    type EncodeSeq = MpSeqEncoder<'w, W, C>;
+    type EncodeTuple = MpSeqEncoder<'w, W, C>;
+    type EncodeTupleStruct = MpSeqEncoder<'w, W, C>;
+    type EncodeTupleVariant = MpSeqEncoder<'w, W, C>;
+    type EncodeMap = MpMapEncoder<'w, W, C>;
+    type EncodeStruct = MpMapEncoder<'w, W, C>;
+    type EncodeStructVariant = MpMapEncoder<'w, W, C>;
 
     type EncodeBoolAsync<'a>
         = EncodeFixedOpAsync<'w, 'a, W>
@@ -726,7 +861,7 @@ where
         'b: 'a;
 
     type EncodeNewtypeVariantAsync<'a, 'b, T>
-        = EncodeNewtypeVariantOpAsync<'w, 'b, 'a, W, T>
+        = EncodeNewtypeVariantOpAsync<'w, 'b, 'a, W, C, T>
     where
         T: ?Sized + TrEncodable + 'a + 'b,
         Self: 'a,
@@ -736,7 +871,7 @@ where
         'w: 'a;
 
     type EncodeSeqAsync<'a>
-        = EncodeSeqHeaderOpAsync<'w, 'a, W>
+        = EncodeSeqHeaderOpAsync<'w, 'a, W, C>
     where
         Self: 'a,
         Self::Error: 'a,
@@ -744,7 +879,7 @@ where
         'w: 'a;
 
     type EncodeTupleAsync<'a>
-        = EncodeSeqHeaderOpAsync<'w, 'a, W>
+        = EncodeSeqHeaderOpAsync<'w, 'a, W, C>
     where
         Self: 'a,
         Self::Error: 'a,
@@ -752,7 +887,7 @@ where
         'w: 'a;
 
     type EncodeTupleStructAsync<'a>
-        = EncodeSeqHeaderOpAsync<'w, 'a, W>
+        = EncodeSeqHeaderOpAsync<'w, 'a, W, C>
     where
         Self: 'a,
         Self::Error: 'a,
@@ -760,7 +895,7 @@ where
         'w: 'a;
 
     type EncodeTupleVariantAsync<'a>
-        = EncodeTupleVariantOpAsync<'w, 'a, W>
+        = EncodeTupleVariantOpAsync<'w, 'a, W, C>
     where
         Self: 'a,
         Self::Error: 'a,
@@ -768,7 +903,7 @@ where
         'w: 'a;
 
     type EncodeMapAsync<'a>
-        = EncodeMapHeaderOpAsync<'w, 'a, W>
+        = EncodeMapHeaderOpAsync<'w, 'a, W, C>
     where
         Self: 'a,
         Self::Error: 'a,
@@ -776,7 +911,7 @@ where
         'w: 'a;
 
     type EncodeStructAsync<'a>
-        = EncodeMapHeaderOpAsync<'w, 'a, W>
+        = EncodeMapHeaderOpAsync<'w, 'a, W, C>
     where
         Self: 'a,
         Self::Error: 'a,
@@ -784,7 +919,7 @@ where
         'w: 'a;
 
     type EncodeStructVariantAsync<'a>
-        = EncodeStructVariantOpAsync<'w, 'a, W>
+        = EncodeStructVariantOpAsync<'w, 'a, W, C>
     where
         Self: 'a,
         Self::Error: 'a,
@@ -1028,7 +1163,12 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeNewtypeVariantOpAsync::<'w, 'b, 'a, W, T>::new(self.writer_, variant, value)
+        EncodeNewtypeVariantOpAsync::<'w, 'b, 'a, W, C, T>::new(
+            self.writer_,
+            variant,
+            value,
+            self.config_,
+        )
     }
 
     fn encode_seq<'a>(self, len: Option<usize>) -> Self::EncodeSeqAsync<'a>
@@ -1044,7 +1184,7 @@ where
                 0,
             ),
         };
-        EncodeSeqHeaderOpAsync::<'w, 'a, W>::new(self.writer_, header, remaining)
+        EncodeSeqHeaderOpAsync::<'w, 'a, W, C>::new(self.writer_, header, remaining, self.config_)
     }
 
     fn encode_tuple<'a>(self, len: usize) -> Self::EncodeTupleAsync<'a>
@@ -1053,7 +1193,12 @@ where
         Self::EncodeTuple: 'a,
         Self::Error: 'a,
     {
-        EncodeSeqHeaderOpAsync::<'w, 'a, W>::new(self.writer_, array_header_(len), len)
+        EncodeSeqHeaderOpAsync::<'w, 'a, W, C>::new(
+            self.writer_,
+            array_header_(len),
+            len,
+            self.config_,
+        )
     }
 
     fn encode_tuple_struct<'a>(
@@ -1066,7 +1211,12 @@ where
         Self::EncodeTupleStruct: 'a,
         Self::Error: 'a,
     {
-        EncodeSeqHeaderOpAsync::<'w, 'a, W>::new(self.writer_, array_header_(len), len)
+        EncodeSeqHeaderOpAsync::<'w, 'a, W, C>::new(
+            self.writer_,
+            array_header_(len),
+            len,
+            self.config_,
+        )
     }
 
     fn encode_tuple_variant<'a>(
@@ -1081,7 +1231,7 @@ where
         Self::EncodeTupleVariant: 'a,
         Self::Error: 'a,
     {
-        EncodeTupleVariantOpAsync::<'w, 'a, W>::new(self.writer_, variant, len)
+        EncodeTupleVariantOpAsync::<'w, 'a, W, C>::new(self.writer_, variant, len, self.config_)
     }
 
     fn encode_map<'a>(self, len: Option<usize>) -> Self::EncodeMapAsync<'a>
@@ -1094,7 +1244,7 @@ where
             Some(len) => (map_header_(len), len),
             None => (Err(MpError::new("mp_denco requires a known map length")), 0),
         };
-        EncodeMapHeaderOpAsync::<'w, 'a, W>::new(self.writer_, header, remaining)
+        EncodeMapHeaderOpAsync::<'w, 'a, W, C>::new(self.writer_, header, remaining, self.config_)
     }
 
     fn encode_struct<'a>(self, _name: &'static str, len: usize) -> Self::EncodeStructAsync<'a>
@@ -1103,7 +1253,12 @@ where
         Self::EncodeStruct: 'a,
         Self::Error: 'a,
     {
-        EncodeMapHeaderOpAsync::<'w, 'a, W>::new(self.writer_, map_header_(len), len)
+        let header = if self.config_.is_named() {
+            map_header_(len)
+        } else {
+            array_header_(len)
+        };
+        EncodeMapHeaderOpAsync::<'w, 'a, W, C>::new(self.writer_, header, len, self.config_)
     }
 
     fn encode_struct_variant<'a>(
@@ -1118,7 +1273,7 @@ where
         Self::EncodeStructVariant: 'a,
         Self::Error: 'a,
     {
-        EncodeStructVariantOpAsync::<'w, 'a, W>::new(self.writer_, variant, len)
+        EncodeStructVariantOpAsync::<'w, 'a, W, C>::new(self.writer_, variant, len, self.config_)
     }
 
     fn is_human_readable(&self) -> bool {
@@ -1127,15 +1282,19 @@ where
 }
 
 /// 序列化序列/元组时的状态机。
-pub struct MpSeqEncoder<'w, W> {
+///
+/// 类型参数 `C` 会传给被编码的元素，保证嵌套结构体沿用同一份配置。
+pub struct MpSeqEncoder<'w, W, C = DefaultConfig> {
     writer_: &'w mut W,
     #[allow(dead_code)]
     remaining_: usize,
+    config_: C,
 }
 
-impl<'w, W> TrEncodeSeq for MpSeqEncoder<'w, W>
+impl<'w, W, C> TrEncodeSeq for MpSeqEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig,
 {
     type Ok = ();
     type Error = MpError;
@@ -1150,7 +1309,7 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeElementOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, value)
+        EncodeElementOpAsync::<'a, 'b, 'a, W, C, T>::new(&mut *self.writer_, value, self.config_)
     }
 
     fn end<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Ok, Self::Error>>
@@ -1163,9 +1322,10 @@ where
     }
 }
 
-impl<'w, W> TrEncodeTuple for MpSeqEncoder<'w, W>
+impl<'w, W, C> TrEncodeTuple for MpSeqEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig,
 {
     type Ok = ();
     type Error = MpError;
@@ -1180,7 +1340,7 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeElementOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, value)
+        EncodeElementOpAsync::<'a, 'b, 'a, W, C, T>::new(&mut *self.writer_, value, self.config_)
     }
 
     fn end<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Ok, Self::Error>>
@@ -1193,9 +1353,10 @@ where
     }
 }
 
-impl<'w, W> TrEncodeTupleStruct for MpSeqEncoder<'w, W>
+impl<'w, W, C> TrEncodeTupleStruct for MpSeqEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig,
 {
     type Ok = ();
     type Error = MpError;
@@ -1210,7 +1371,7 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeElementOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, value)
+        EncodeElementOpAsync::<'a, 'b, 'a, W, C, T>::new(&mut *self.writer_, value, self.config_)
     }
 
     fn end<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Ok, Self::Error>>
@@ -1223,9 +1384,10 @@ where
     }
 }
 
-impl<'w, W> TrEncodeTupleVariant for MpSeqEncoder<'w, W>
+impl<'w, W, C> TrEncodeTupleVariant for MpSeqEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig,
 {
     type Ok = ();
     type Error = MpError;
@@ -1240,7 +1402,7 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeElementOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, value)
+        EncodeElementOpAsync::<'a, 'b, 'a, W, C, T>::new(&mut *self.writer_, value, self.config_)
     }
 
     fn end<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Ok, Self::Error>>
@@ -1254,15 +1416,20 @@ where
 }
 
 /// 序列化映射/结构体时的状态机。
-pub struct MpMapEncoder<'w, W> {
+///
+/// 类型参数 `C` 决定结构体字段是否写入字段名；普通映射的 `encode_key` /
+/// `encode_value` 不受它影响。
+pub struct MpMapEncoder<'w, W, C = DefaultConfig> {
     writer_: &'w mut W,
     #[allow(dead_code)]
     remaining_: usize,
+    config_: C,
 }
 
-impl<'w, W> TrEncodeMap for MpMapEncoder<'w, W>
+impl<'w, W, C> TrEncodeMap for MpMapEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig,
 {
     type Ok = ();
     type Error = MpError;
@@ -1277,7 +1444,7 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeElementOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, key)
+        EncodeElementOpAsync::<'a, 'b, 'a, W, C, T>::new(&mut *self.writer_, key, self.config_)
     }
 
     fn encode_value<'a, 'b, T>(
@@ -1290,7 +1457,7 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeElementOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, value)
+        EncodeElementOpAsync::<'a, 'b, 'a, W, C, T>::new(&mut *self.writer_, value, self.config_)
     }
 
     fn end<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Ok, Self::Error>>
@@ -1303,9 +1470,10 @@ where
     }
 }
 
-impl<'w, W> TrEncodeStruct for MpMapEncoder<'w, W>
+impl<'w, W, C> TrEncodeStruct for MpMapEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig,
 {
     type Ok = ();
     type Error = MpError;
@@ -1321,7 +1489,12 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeStructFieldOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, key, value)
+        EncodeStructFieldOpAsync::<'a, 'b, 'a, W, C, T>::new(
+            &mut *self.writer_,
+            key,
+            value,
+            self.config_,
+        )
     }
 
     fn end<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Ok, Self::Error>>
@@ -1334,9 +1507,10 @@ where
     }
 }
 
-impl<'w, W> TrEncodeStructVariant for MpMapEncoder<'w, W>
+impl<'w, W, C> TrEncodeStructVariant for MpMapEncoder<'w, W, C>
 where
     W: TrBuffWrite<u8> + 'w,
+    C: SerializerConfig,
 {
     type Ok = ();
     type Error = MpError;
@@ -1352,7 +1526,12 @@ where
         Self::Error: 'a,
         'b: 'a,
     {
-        EncodeStructFieldOpAsync::<'a, 'b, 'a, W, T>::new(&mut *self.writer_, key, value)
+        EncodeStructFieldOpAsync::<'a, 'b, 'a, W, C, T>::new(
+            &mut *self.writer_,
+            key,
+            value,
+            self.config_,
+        )
     }
 
     fn end<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Ok, Self::Error>>

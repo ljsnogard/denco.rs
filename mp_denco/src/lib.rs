@@ -18,8 +18,10 @@
 //!   四种枚举变体；
 //! - 解码：nil、布尔、整数、浮点数、字符串、二进制、数组、映射、`Option`、
 //!   单元/newtype 结构体、四种枚举变体；
-//! - 结构体默认编码为命名映射，与 `rmp_serde::to_vec_named` 一致；解码同时
-//!   接受命名映射与位置数组，因此也能读取 `rmp_serde::to_vec` 的输出；
+//! - 结构体默认编码为位置数组，不写字段名，与 `rmp_serde::to_vec` 一致；
+//!   用 [`MpEncoder::with_struct_map`] 或 [`MpEncoder::with_config`] 配合
+//!   [`StructMapConfig`] 可改为命名映射，与 `rmp_serde::to_vec_named` 一致；
+//!   解码同时接受位置数组与命名映射；
 //! - 取消语义：入口处的预取消检查，以及 `gen_mcf2` helper 路径上的取消传播。
 //!
 //! 具体格式约定与 `rmp-serde` 的对照见 `mp_denco/tests/interop_.rs`。
@@ -29,10 +31,12 @@
 
 extern crate alloc;
 
+mod config_;
 mod de_;
 mod error_;
 mod ser_;
 
+pub use config_::{DefaultConfig, SerializerConfig, StructMapConfig, StructTupleConfig};
 pub use de_::MpDecoder;
 pub use error_::MpError;
 pub use ser_::{CancellableReady, MpEncoder, MpMapEncoder, MpSeqEncoder};

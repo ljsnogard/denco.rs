@@ -50,6 +50,28 @@ where
     storage
 }
 
+/// 用命名映射配置编码一个值，便于检查派生出的字段名。
+fn encode_named_<T>(value: &T) -> Vec<u8>
+where
+    T: ?Sized + TrEncodable,
+{
+    let mut storage = vec![0u8; 4096];
+    let total = storage.len();
+    let written = {
+        let mut sink: &mut [u8] = storage.as_mut_slice();
+        block_on_(async {
+            value
+                .encode_async(MpEncoder::new(&mut sink).with_struct_map())
+                .may_cancel_with(NonCancellableToken::new())
+                .await
+        })
+        .expect("命名编码应当成功");
+        total - sink.len()
+    };
+    storage.truncate(written);
+    storage
+}
+
 fn decode_<'de, T>(bytes: &'de [u8]) -> T
 where
     T: TrDecodable<'de>,
@@ -262,7 +284,6 @@ struct Renamed {
     count: U64Val,
 }
 
-
 #[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
 #[denco(transparent)]
 struct Transparent(U64Val);
@@ -351,9 +372,7 @@ fn tuple_and_newtype_roundtrip_() {
 /// - 判断：解码值与原值相等。
 #[test]
 fn generic_roundtrip_() {
-    let value = Generic {
-        value: U64Val(42),
-    };
+    let value = Generic { value: U64Val(42) };
     let got: Generic<U64Val> = decode_(&encode_(&value));
     assert_eq!(got, value);
 }
@@ -380,8 +399,9 @@ fn enum_roundtrip_() {
 
 /// 验证 `rename_all`、`skip` 与 `default` 的派生行为。
 ///
-/// - 手段：编码 `Renamed`，并手工构造只含 `identifier` 的映射字节再解码。
-/// - 判断：编码后的键为 `identifier`，缺失字段使用默认值。
+/// - 手段：用命名映射配置编码 `Renamed`，并手工构造只含 `identifier` 的映射
+///   字节再解码。
+/// - 判断：命名编码中的键为 `identifier`，缺失字段使用默认值。
 #[test]
 fn rename_skip_default_() {
     let value = Renamed {
@@ -389,7 +409,7 @@ fn rename_skip_default_() {
         ignored: U64Val(999),
         count: U64Val(7),
     };
-    let bytes = encode_(&value);
+    let bytes = encode_named_(&value);
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("identifier"), "重命名后的键应当出现：{text}");
     assert!(!text.contains("ignored"), "skip 字段不应被编码：{text}");
@@ -411,7 +431,7 @@ fn rename_skip_default_() {
     );
 }
 
-/// 验证 derive 生成的编码字节与 rmp-serde 的命名表示一致。
+/// 验证 derive 生成的默认编码字节与 rmp-serde 的紧凑表示一致。
 ///
 /// - 手段：同一个 `Record` 同时派生 serde 与 denco 的编解码，比较字节。
 /// - 判断：两边字节完全相同，且互相可解。
@@ -422,7 +442,7 @@ fn bytes_match_rmp_serde_() {
         name: StrVal(String::from("denco")),
     };
     let mp_bytes = encode_(&value);
-    let rmp_bytes = rmp_serde::to_vec_named(&value).expect("rmp 编码应当成功");
+    let rmp_bytes = rmp_serde::to_vec(&value).expect("rmp 编码应当成功");
     assert_eq!(mp_bytes, rmp_bytes);
 }
 
@@ -434,16 +454,10 @@ fn bytes_match_rmp_serde_() {
 #[test]
 fn transparent_public_empty_alias_() {
     let transparent = Transparent(U64Val(3));
-    assert_eq!(
-        decode_::<Transparent>(&encode_(&transparent)),
-        transparent
-    );
+    assert_eq!(decode_::<Transparent>(&encode_(&transparent)), transparent);
 
     let public = PublicRecord { id: U64Val(4) };
-    assert_eq!(
-        decode_::<PublicRecord>(&encode_(&public)),
-        public
-    );
+    assert_eq!(decode_::<PublicRecord>(&encode_(&public)), public);
 
     let empty = EmptyRecord {};
     assert_eq!(decode_::<EmptyRecord>(&encode_(&empty)), empty);

@@ -99,7 +99,7 @@ unit/newtype/tuple/named 形状，以及常用的 `denco(...)` 重命名、跳�
 - 四种枚举变体与 `rename_all`；
 - 泛型与 const 泛型；
 - `skip`、`default`、`alias`、`transparent`、空命名结构体；
-- 与 `rmp_serde::to_vec_named` 的字节级一致性；
+- 与 `rmp_serde::to_vec` 的字节级一致性；
 - `mp_denco/tests/derive_interop_.rs`：包含 `String`、数组、`Vec`、
   `Option`、`Arc`、标量与枚举变体的双向交叉编解码。
 

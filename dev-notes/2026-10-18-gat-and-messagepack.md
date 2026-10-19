@@ -184,8 +184,10 @@ async fn decode_any_async<...>() -> Result<...> { ... }
   四种枚举变体；
 - 解码：nil、bool、整数、浮点、字符串、二进制、数组、映射、`Option`、
   单元/newtype 结构体、四种枚举变体；
-- 结构体编码为命名映射；解码同时接受命名映射与位置数组，因此既能读取
-  `rmp_serde::to_vec_named` 的输出，也能读取 `rmp_serde::to_vec` 的输出。
+- 结构体默认编码为位置数组（不写字段名），与 `rmp_serde::to_vec` 一致；
+  通过 `MpEncoder::with_struct_map` 可切换为命名映射；解码同时接受位置数组
+  与命名映射，因此既能读取 `rmp_serde::to_vec` 的输出，也能读取
+  `rmp_serde::to_vec_named` 的输出。
 
 与 `rmp-serde` 对齐的具体约定：
 
@@ -196,11 +198,13 @@ async fn decode_any_async<...>() -> Result<...> { ... }
 | 单元枚举变体 | 变体名字符串 |
 | newtype 变体 | 单键映射 `{variant: value}` |
 | 元组变体 | 单键映射 `{variant: [fields...]}` |
-| 结构体变体 | 单键映射 `{variant: {field: value, ...}}` |
+| 结构体变体 | 默认单键映射 `{variant: [values...]}`；命名映射配置为 `{variant: {field: value, ...}}` |
 | i128 / u128 | 16 字节大端 binary `0xc4 0x10 ...` |
 | 字符串 / 二进制 | 短值栈数组，长值 `String` / `Vec<u8>`（owned 解码） |
 
-`to_vec_named` 的字节与 `mp_denco` 的命名编码在测试覆盖的类型上完全一致。
+默认编码与 `rmp_serde::to_vec` 的字节在测试覆盖的类型上完全一致；
+`with_struct_map()` 之后的字节与 `rmp_serde::to_vec_named` 一致。详见
+[`2026-10-19-struct-serialization-config.md`](2026-10-19-struct-serialization-config.md)。
 
 MessagePack 是同步内存格式，无法在操作中途被打断；当前只保证入口处的
 预取消检查与 helper 路径的取消传播。
@@ -246,10 +250,10 @@ gen_mcf2 = { path = "../cancel_rs/gen_mcf2" }
 `mp_denco/tests/interop_.rs` 用同一批类型同时实现 serde 与 denco trait，
 对每个值做四条检查：
 
-1. `mp_denco` 编码字节 == `rmp_serde::to_vec_named` 编码字节；
-2. `rmp_serde::from_slice` 能解码 `mp_denco` 的字节；
-3. `mp_denco` 能解码 `rmp_serde::to_vec_named` 的字节；
-4. `mp_denco` 能解码 `rmp_serde::to_vec` 的紧凑数组字节。
+1. `mp_denco` 默认编码字节 == `rmp_serde::to_vec` 编码字节；
+2. `rmp_serde::from_slice` 能解码 `mp_denco` 的默认字节；
+3. `mp_denco` 能解码 `rmp_serde::to_vec` 的紧凑数组字节；
+4. `mp_denco` 能解码 `rmp_serde::to_vec_named` 的命名字节。
 
 覆盖的类型：
 
@@ -304,8 +308,8 @@ i128/u128、enum 从 `decode_any` 转发改为定向实现。字符串/二进制
    `MpEncoder` / `MpDecoder`。
 5. 取消语义接入 `cantok_rs`，并保留本地 path patch 直到上游推送完成。
 6. 与 `rmp-serde` 互操作时发现 unit struct、枚举、i128/u128 与 serde
-   数据模型不一致，按 `rmp-serde` 的表示修正；结构体保留命名映射编码，
-   解码兼容位置数组，从而同时支持 `to_vec_named` 与 `to_vec`。
+   数据模型不一致，按 `rmp-serde` 的表示修正；结构体默认编码为位置数组，
+   命名映射作为可配置选项，解码兼容两种表示。
 7. 面向真正的 async 数据源，encoder/decoder 改为直接使用 `abs_buff`。
 8. 2026-10-18 取消借用内存反序列化：`MpDecoder` 去掉 `'de`，只要求
    `TrBuffRead<u8>`；`abs_buff` 的借用读 trait 与 `OwnedRead` 回退一并

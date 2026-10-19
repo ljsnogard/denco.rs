@@ -81,7 +81,7 @@ ring 的缓冲内存会在段回收后复用，因此解码器只使用 `read_as
   - 手段：`Ring::try_new(Box::<[u8]>::new_uninit_slice(4096))`，`split()`
     得到 `(writer, reader)`；用 `MpEncoder::new(&mut writer)` 编码
     `U64Val`，drop 写端后用 `MpDecoder` 直接解码 `reader`。
-  - 判断：解码值等于原值；与 `rmp_serde::to_vec_named` 字节一致。
+  - 判断：解码值等于原值；与 `rmp_serde::to_vec` 字节一致。
 
 ### 4.2 跨段与环绕
 
@@ -133,7 +133,7 @@ ring 的缓冲内存会在段回收后复用，因此解码器只使用 `read_as
     `BuffWrite::<_, DefaultAllocConfig>::try_new(stream, 4096, DefaultAllocConfig)`
     编码 `U64Val`，`close_async` 收尾；客户端用
     `BuffRead::try_new(stream, 4096, DefaultAllocConfig)` 直接解码。
-  - 判断：解码值等于原值；与 `to_vec_named` 的命名字节一致。
+  - 判断：解码值等于原值；与 `to_vec` 的紧凑字节一致。
 - `tcp_bidirectional_concurrent_`
   - 手段：客户端与服务端同时各发一个值（`tokio::join!`），双向
     `BuffRead` / `BuffWrite`。

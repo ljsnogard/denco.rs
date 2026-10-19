@@ -155,12 +155,12 @@ where
     .expect("解码应当成功")
 }
 
-/// 用 `rmp-serde` 编码同一个值，作为字节级参照。
+/// 用 `rmp-serde` 的默认紧凑表示编码同一个值，作为字节级参照。
 fn serde_bytes_<T>(value: &T) -> Vec<u8>
 where
     T: ?Sized + serde::Serialize,
 {
-    rmp_serde::to_vec_named(value).expect("serde 编码应当成功")
+    rmp_serde::to_vec(value).expect("serde 编码应当成功")
 }
 
 /// 测试 `BTreeMap` 的往返与字节一致性。
@@ -415,12 +415,12 @@ fn nested_and_empty_containers_() {
 ///
 /// - 手段：给带 `BTreeMap` 与 `BTreeSet` 字段的 `Envelope` 同时派生 denco 与 serde，
 ///   分别编码并互相解码。
-/// - 判断：派生出的 denco 编码与 `rmp_serde::to_vec_named` 字节一致，往返值相等。
+/// - 判断：派生出的 denco 编码与 `rmp_serde::to_vec` 字节一致，往返值相等。
 ///   这说明容器支持完全落在 `abs_denco`，派生宏无需任何改动。
 ///
 /// - Means: derive both denco and serde for `Envelope` with `BTreeMap` and
 ///   `BTreeSet` fields, then encode and decode both ways.
-/// - Verdict: the derived denco encoding matches `rmp_serde::to_vec_named`
+/// - Verdict: the derived denco encoding matches `rmp_serde::to_vec`
 ///   byte-for-byte and roundtrips. Container support lives entirely in
 ///   `abs_denco`; the derive macro needs no changes.
 #[test]

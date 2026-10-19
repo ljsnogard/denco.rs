@@ -3,12 +3,12 @@
 //! 本文件用同一批测试类型同时实现 serde 的 `Serialize` / `Deserialize`
 //! 与 denco 的 `TrEncodable` / `TrDecodable`，验证三件事：
 //!
-//! 1. `mp_denco` 编码出的字节能被 `rmp_serde::from_slice` 解码；
-//! 2. `rmp_serde::to_vec_named` 编码出的字节能被 `mp_denco` 解码；
-//! 3. `rmp_serde::to_vec`（紧凑数组表示）编码出的字节也能被 `mp_denco`
-//!    解码，覆盖结构体的「命名映射」与「位置数组」两种形态。
+//! 1. `mp_denco` 默认编码出的字节能被 `rmp_serde::from_slice` 解码；
+//! 2. `rmp_serde::to_vec` 编码出的紧凑字节能被 `mp_denco` 解码；
+//! 3. `rmp_serde::to_vec_named` 编码出的命名字节也能被 `mp_denco` 解码，
+//!    覆盖结构体的「位置数组」与「命名映射」两种形态。
 //!
-//! 在命名表示下，两边生成的字节应当完全一致，因此测试同时做字节级断言。
+//! 默认紧凑表示与 `rmp_serde::to_vec` 的字节完全一致，因此测试同时做字节级断言。
 
 #![feature(impl_trait_in_assoc_type)]
 
@@ -85,17 +85,19 @@ where
     .expect("mp_denco 解码应当成功")
 }
 
-/// 对同一个值做四向验证：字节一致、mp→rmp、rmp named→mp、rmp compact→mp。
+/// 对同一个值做四向验证：字节一致、mp→rmp、rmp compact→mp、rmp named→mp。
 ///
 /// 测试目标 / Goal：
-/// - 验证 `mp_denco` 与 `rmp-serde` 对同一数据模型的编码/解码结果一致。
+/// - 验证 `mp_denco` 默认的紧凑表示与 `rmp-serde` 对同一数据模型一致，
+///   并且解码端同时接受紧凑数组与命名映射两种结构体表示。
 ///
 /// 测试手段 / Method：
 /// - 先用 `mp_denco` 编码，再分别用 `rmp_serde::from_slice`、
-///   `rmp_serde::to_vec_named`、`rmp_serde::to_vec` 交叉处理。
+///   `rmp_serde::to_vec`、`rmp_serde::to_vec_named` 交叉处理。
 ///
 /// 判定标准 / Assert：
-/// - 命名编码字节完全相等；三条交叉路径解码出的值都等于原值。
+/// - 默认紧凑编码字节与 `rmp_serde::to_vec` 完全相等；三条交叉路径解码出的
+///   值都等于原值。
 fn check_cross_<T>(value: &T)
 where
     T: fmt::Debug
@@ -106,22 +108,22 @@ where
         + for<'de> TrDecodable<'de>,
 {
     let mp_bytes = denco_encode_(value);
-    let named_bytes = rmp_serde::to_vec_named(value).expect("rmp_serde named 编码应当成功");
+    let compact_bytes = rmp_serde::to_vec(value).expect("rmp_serde compact 编码应当成功");
     assert_eq!(
-        mp_bytes, named_bytes,
-        "mp_denco 与 rmp_serde 的命名表示字节应当一致"
+        mp_bytes, compact_bytes,
+        "mp_denco 默认紧凑表示与 rmp_serde::to_vec 字节应当一致"
     );
 
     let from_mp: T =
         rmp_serde::from_slice(&mp_bytes).expect("rmp_serde 应当能解码 mp_denco 的字节");
     assert_eq!(&from_mp, value, "mp→rmp 解码结果应当等于原值");
 
-    let from_named: T = denco_decode_(&named_bytes);
-    assert_eq!(&from_named, value, "rmp named→mp 解码结果应当等于原值");
-
-    let compact_bytes = rmp_serde::to_vec(value).expect("rmp_serde compact 编码应当成功");
     let from_compact: T = denco_decode_(&compact_bytes);
     assert_eq!(&from_compact, value, "rmp compact→mp 解码结果应当等于原值");
+
+    let named_bytes = rmp_serde::to_vec_named(value).expect("rmp_serde named 编码应当成功");
+    let from_named: T = denco_decode_(&named_bytes);
+    assert_eq!(&from_named, value, "rmp named→mp 解码结果应当等于原值");
 }
 
 //-- ---- 标量包装类型 ---------------------------------------------------------
@@ -476,7 +478,8 @@ impl<'de> TrDecodable<'de> for StrVal {
 struct CharVal(pub char);
 
 impl TrEncodable for CharVal {
-    type EncodeAsync<'a, S> = S::EncodeCharAsync<'a>
+    type EncodeAsync<'a, S>
+        = S::EncodeCharAsync<'a>
     where
         S: TrEncoder + 'a,
         S::Ok: 'a,
@@ -546,7 +549,8 @@ where
 }
 
 impl<'de> TrDecodable<'de> for CharVal {
-    type DecodeAsync<'a, D> = DecodeCharValOpAsync<'de, 'a, 'a, D>
+    type DecodeAsync<'a, D>
+        = DecodeCharValOpAsync<'de, 'a, 'a, D>
     where
         'de: 'a,
         D: TrDecoder<'de> + 'a,
@@ -2265,8 +2269,8 @@ impl<'de> TrDecodable<'de> for Shape {
 /// Verify bidirectional interop for the scalar struct.
 ///
 /// - 手段 / Method: `Scalars` 同时实现 serde 与 denco trait，交给
-///   `check_cross_` 做命名/紧凑/交叉三条路径。
-/// - 判断 / Assert: 命名字节相等，三条路径都解回原值。
+///   `check_cross_` 做默认紧凑、命名解码与交叉路径。
+/// - 判断 / Assert: 紧凑字节相等，三条路径都解回原值。
 #[test]
 fn scalars_cross_() {
     check_cross_(&Scalars {

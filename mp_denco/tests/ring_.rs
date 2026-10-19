@@ -32,7 +32,7 @@ use support::{
 /// 断言同一个值在 ring 上完成「编码 → 排空字节 → 解码」闭环。
 ///
 /// 断言目标 / Goal：
-/// - ring 写出的字节与 `rmp_serde::to_vec_named` 完全一致；
+/// - ring 写出的字节与 `rmp_serde::to_vec` 完全一致；
 /// - 通过解码器直接解码出的值与原值相等。
 ///
 /// 手段 / Method：先用一个 ring 编码并排空字节，再用另一个 ring 编码后解码，
@@ -46,8 +46,8 @@ where
     let mut byte_ring = new_ring_(cap);
     encode_ring_(&mut byte_ring, value);
     let bytes = drain_ring_(&mut byte_ring);
-    let named = rmp_serde::to_vec_named(value).expect("rmp_serde named 编码应当成功");
-    assert_eq!(bytes, named, "ring 编码字节应与 rmp_serde 命名表示一致");
+    let compact = rmp_serde::to_vec(value).expect("rmp_serde compact 编码应当成功");
+    assert_eq!(bytes, compact, "ring 编码字节应与 rmp_serde 紧凑表示一致");
 
     let mut decode_ring = new_ring_(cap);
     encode_ring_(&mut decode_ring, value);
@@ -88,7 +88,7 @@ fn shift_ring_(ring: &mut TestRing, amount: usize) {
 ///
 /// - 测试目标 / Goal：`MpEncoder` / `MpDecoder` 能在 `buffex::Ring` 上工作。
 /// - 手段 / Method：容量 4096 的 ring，编码小整数后分别排空字节与解码。
-/// - 判断 / Assert：字节等于 `rmp_serde::to_vec_named`；解码值等于原值。
+/// - 判断 / Assert：字节等于 `rmp_serde::to_vec`；解码值等于原值。
 #[test]
 fn ring_roundtrip_small_() {
     assert_ring_roundtrip_(&U64Val(300), 4096);
@@ -195,7 +195,7 @@ fn ring_multi_slice_read_exact_() {
 /// - 测试目标 / Goal：长度大于 256 字节的值不依赖零拷贝借用也能正确解码。
 /// - 手段 / Method：在容量 4096 的 ring 上分别编码 300 字节字符串与 300 字节
 ///   二进制，由解码器直接走 owned 路径。
-/// - 判断 / Assert：字节与 rmp-serde 命名表示一致；解码内容与原值完全相等。
+/// - 判断 / Assert：字节与 rmp-serde 紧凑表示一致；解码内容与原值完全相等。
 #[test]
 fn ring_long_string_owned_path_() {
     let text = StrVal("环".repeat(150)); // 450 字节 UTF-8，明显超过 256

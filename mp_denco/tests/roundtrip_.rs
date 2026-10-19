@@ -498,13 +498,39 @@ where
     Ok(Record { name, age })
 }
 
+/// 从位置数组读取 `Record`，用于验证默认 tuple 表示。
+#[gen_may_cancel_future(VisitRecordSeq)]
+async fn visit_record_seq_async<'de, 'a, A, C>(mut seq: A, cancel: C) -> Result<Record, A::Error>
+where
+    'de: 'a,
+    A: SeqAccess<'de> + 'a,
+    A::Error: 'a,
+    C: TrCancellationToken,
+{
+    let name = seq
+        .next_element::<Name>()
+        .may_cancel_with(cancel.child_token())
+        .await?
+        .ok_or_else(|| {
+            <A::Error as de::Error>::custom("Record sequence is missing the name field")
+        })?;
+    let age = seq
+        .next_element::<Age>()
+        .may_cancel_with(cancel.child_token())
+        .await?
+        .ok_or_else(|| {
+            <A::Error as de::Error>::custom("Record sequence is missing the age field")
+        })?;
+    Ok(Record { name, age })
+}
+
 struct RecordVisitor;
 
 impl<'de> Visitor<'de> for RecordVisitor {
     type Value = Record;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("a Record map")
+        f.write_str("a Record map or sequence")
     }
 
     fn visit_map<'a, A>(
@@ -519,6 +545,20 @@ impl<'de> Visitor<'de> for RecordVisitor {
         A::Error: 'a,
     {
         VisitRecordAsync::<'de, 'a, 'a, A>::new(map)
+    }
+
+    fn visit_seq<'a, A>(
+        self,
+        seq: A,
+    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
+    where
+        'de: 'a,
+        Self: 'a,
+        Self::Value: 'a,
+        A: SeqAccess<'de> + 'a,
+        A::Error: 'a,
+    {
+        VisitRecordSeqAsync::<'de, 'a, 'a, A>::new(seq)
     }
 }
 
@@ -698,6 +738,28 @@ where
                 .await
         })
         .expect("mp_denco encoding should succeed");
+        total - sink.len()
+    };
+    storage.truncate(written);
+    storage
+}
+
+/// 用命名映射配置把任意 `TrEncodable` 编码为 `Vec<u8>`。
+fn encode_vec_named_<T>(value: &T) -> Vec<u8>
+where
+    T: ?Sized + TrEncodable,
+{
+    let mut storage = vec![0u8; 4096];
+    let total = storage.len();
+    let written = {
+        let mut sink: &mut [u8] = storage.as_mut_slice();
+        block_on(async {
+            value
+                .encode_async(MpEncoder::new(&mut sink).with_struct_map())
+                .may_cancel_with(NonCancellableToken::new())
+                .await
+        })
+        .expect("mp_denco named encoding should succeed");
         total - sink.len()
     };
     storage.truncate(written);
@@ -900,18 +962,35 @@ fn ignored_any_consumes_array() {
     assert_eq!(decode_slice_::<IgnoredAny>(&buf), Ok(IgnoredAny));
 }
 
-/// 验证结构体映射的往返，并覆盖 `MapAccessExt::next_key` / `next_value`。
-/// Verify a struct-map round trip, covering `MapAccessExt::next_key` / `next_value`.
+/// 验证结构体默认位置数组表示的往返。
+/// Verify the round trip of the default struct tuple representation.
 ///
-/// - 手段 / Method: `Record { name: "denco", age: 42 }` 编码为 fixmap 2。
-/// - 判断 / Assert: 字节符合 MessagePack 映射布局，解码结果与原值相等。
+/// - 手段 / Method: `Record { name: "denco", age: 42 }` 默认编码为 fixarray 2。
+/// - 判断 / Assert: 字节为数组布局，解码结果与原值相等。
 #[test]
-fn roundtrip_record_map() {
+fn roundtrip_record_default_() {
     let record = Record {
         name: Name(String::from("denco")),
         age: Age(42),
     };
     let buf = encode_vec_(&record);
+    assert_eq!(buf, vec![0x92, 0xa5, b'd', b'e', b'n', b'c', b'o', 0x2a]);
+    assert_eq!(decode_slice_::<Record>(&buf), Ok(record));
+}
+
+/// 验证结构体命名映射配置的往返，并覆盖 `MapAccessExt::next_key` / `next_value`。
+/// Verify a named struct-map round trip, covering `MapAccessExt::next_key` / `next_value`.
+///
+/// - 手段 / Method: 用 `with_struct_map` 把 `Record { name: "denco", age: 42 }`
+///   编码为 fixmap 2。
+/// - 判断 / Assert: 字节符合 MessagePack 映射布局，解码结果与原值相等。
+#[test]
+fn roundtrip_record_named_() {
+    let record = Record {
+        name: Name(String::from("denco")),
+        age: Age(42),
+    };
+    let buf = encode_vec_named_(&record);
     assert_eq!(
         buf,
         vec![

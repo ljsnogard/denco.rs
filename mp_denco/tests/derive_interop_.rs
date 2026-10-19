@@ -39,12 +39,31 @@ where
     let total = storage.len();
     let written = {
         let mut sink: &mut [u8] = storage.as_mut_slice();
+        block_on_(async { value.encode_async(MpEncoder::new(&mut sink)).await })
+            .expect("mp_denco 编码应当成功");
+        total - sink.len()
+    };
+    storage.truncate(written);
+    storage
+}
+
+/// 用 `mp_denco` 的命名映射配置编码一个值。
+///
+/// 结构体字段会连同字段名一起写入，对应 `rmp_serde::to_vec_named` 的表示。
+fn mp_encode_named_<T>(value: &T) -> Vec<u8>
+where
+    T: ?Sized + TrEncodable,
+{
+    let mut storage = vec![0u8; 4096];
+    let total = storage.len();
+    let written = {
+        let mut sink: &mut [u8] = storage.as_mut_slice();
         block_on_(async {
             value
-                .encode_async(MpEncoder::new(&mut sink))
+                .encode_async(MpEncoder::new(&mut sink).with_struct_map())
                 .await
         })
-        .expect("mp_denco 编码应当成功");
+        .expect("mp_denco 命名编码应当成功");
         total - sink.len()
     };
     storage.truncate(written);
@@ -57,11 +76,8 @@ where
     T: TrDecodable<'de>,
 {
     let mut input: &'de [u8] = bytes;
-    block_on_(async {
-        T::decode_async(MpDecoder::new(&mut input))
-            .await
-    })
-    .expect("mp_denco 解码应当成功")
+    block_on_(async { T::decode_async(MpDecoder::new(&mut input)).await })
+        .expect("mp_denco 解码应当成功")
 }
 
 //-- ---- 测试类型 -------------------------------------------------------------
@@ -101,8 +117,9 @@ enum ClassicEnum {
 
 /// 验证包含 String/数组/Vec/Option/Arc 的结构体双向互通。
 ///
-/// - 手段：同一个 `Classic` 同时用 `mp_denco` 与 `rmp_serde` 编码，再交叉解码。
-/// - 判断：命名编码字节完全一致；两种解码路径都等于原值。
+/// - 手段：同一个 `Classic` 分别用默认配置（位置数组）与 `with_struct_map`
+///   编码，再与 `rmp_serde::to_vec` / `to_vec_named` 交叉解码。
+/// - 判断：两种表示的字节分别一致；各解码路径都等于原值。
 #[test]
 fn classic_struct_interop_() {
     let value = Classic {
@@ -124,21 +141,32 @@ fn classic_struct_interop_() {
     };
 
     let mp_bytes = mp_encode_(&value);
-    let rmp_bytes = rmp_serde::to_vec_named(&value).expect("rmp_serde 编码应当成功");
-    assert_eq!(mp_bytes, rmp_bytes, "两边命名编码应当一致");
+    let rmp_compact = rmp_serde::to_vec(&value).expect("rmp_serde compact 编码应当成功");
+    assert_eq!(mp_bytes, rmp_compact, "默认位置数组编码应当一致");
+
+    let mp_named = mp_encode_named_(&value);
+    let rmp_named = rmp_serde::to_vec_named(&value).expect("rmp_serde named 编码应当成功");
+    assert_eq!(mp_named, rmp_named, "命名映射编码应当一致");
 
     let from_mp: Classic = rmp_serde::from_slice(&mp_bytes).expect("rmp 应能解码 mp 字节");
     assert_eq!(from_mp, value);
 
-    let from_rmp: Classic = mp_decode_(&rmp_bytes);
-    assert_eq!(from_rmp, value);
+    let from_mp_named: Classic =
+        rmp_serde::from_slice(&mp_named).expect("rmp 应能解码 mp 命名字节");
+    assert_eq!(from_mp_named, value);
+
+    let from_rmp_named: Classic = mp_decode_(&rmp_named);
+    assert_eq!(from_rmp_named, value);
+
+    let from_rmp_compact: Classic = mp_decode_(&rmp_compact);
+    assert_eq!(from_rmp_compact, value);
 }
 
 /// 验证包含 String/数组/Arc 的枚举各变体双向互通。
 ///
-/// - 手段：对 `ClassicEnum` 的 unit/newtype/tuple/struct 变体分别做
-///   `mp_denco` 与 `rmp_serde` 的交叉编解码。
-/// - 判断：字节一致，且两条解码路径都得到原值。
+/// - 手段：对 `ClassicEnum` 的 unit/newtype/tuple/struct 变体分别用默认配置
+///   与命名映射配置编码，再与 `rmp_serde` 的紧凑/命名表示交叉编解码。
+/// - 判断：两种表示字节分别一致，且各解码路径都得到原值。
 #[test]
 fn classic_enum_interop_() {
     for value in [
@@ -152,14 +180,25 @@ fn classic_enum_interop_() {
         },
     ] {
         let mp_bytes = mp_encode_(&value);
-        let rmp_bytes = rmp_serde::to_vec_named(&value).expect("rmp_serde 编码应当成功");
-        assert_eq!(mp_bytes, rmp_bytes, "枚举命名编码应当一致");
+        let rmp_compact = rmp_serde::to_vec(&value).expect("rmp_serde compact 编码应当成功");
+        assert_eq!(mp_bytes, rmp_compact, "枚举默认位置数组编码应当一致");
+
+        let mp_named = mp_encode_named_(&value);
+        let rmp_named = rmp_serde::to_vec_named(&value).expect("rmp_serde named 编码应当成功");
+        assert_eq!(mp_named, rmp_named, "枚举命名映射编码应当一致");
 
         let from_mp: ClassicEnum =
             rmp_serde::from_slice(&mp_bytes).expect("rmp 应能解码 mp 枚举字节");
         assert_eq!(from_mp, value);
 
-        let from_rmp: ClassicEnum = mp_decode_(&rmp_bytes);
-        assert_eq!(from_rmp, value);
+        let from_mp_named: ClassicEnum =
+            rmp_serde::from_slice(&mp_named).expect("rmp 应能解码 mp 命名枚举字节");
+        assert_eq!(from_mp_named, value);
+
+        let from_rmp_named: ClassicEnum = mp_decode_(&rmp_named);
+        assert_eq!(from_rmp_named, value);
+
+        let from_rmp_compact: ClassicEnum = mp_decode_(&rmp_compact);
+        assert_eq!(from_rmp_compact, value);
     }
 }
