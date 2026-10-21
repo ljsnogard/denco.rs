@@ -3,8 +3,10 @@
 #![feature(impl_trait_in_assoc_type)]
 
 use core::{
+    borrow::Borrow,
     fmt,
     future::{self, Future},
+    marker::PhantomData,
     task::{Context, Poll},
 };
 use std::task::Waker;
@@ -243,6 +245,126 @@ impl<'de> TrDecodable<'de> for StrVal {
     }
 }
 
+//-- ---- 回归测试：隐式泛型参数与 transparent bound ---------------------------
+
+/// 手写的泛型字符串键，用于验证 transparent newtype 的 bound 落在内层类型上。
+///
+/// 它只要求 `S: Borrow<str> + From<String>`，不要求 `S` 自身实现 denco 的编解码
+/// trait；外层 `#[denco(transparent)]` newtype 应当直接复用这里的实现。
+///
+/// A hand-written generic string key used to verify that a transparent newtype's
+/// bounds land on the inner type. It requires only `S: Borrow<str> + From<String>`,
+/// never `S: TrEncodable` / `S: TrDecodable`.
+#[derive(Debug, PartialEq, Eq)]
+struct HandKey<S>(S)
+where
+    S: Borrow<str>;
+
+impl<S> TrEncodable for HandKey<S>
+where
+    S: Borrow<str>,
+{
+    type EncodeAsync<'a, E>
+        = E::EncodeStrAsync<'a, 'a>
+    where
+        E: TrEncoder + 'a,
+        E::Ok: 'a,
+        E::Error: 'a,
+        Self: 'a;
+
+    fn encode_async<'a, E>(&'a self, encoder: E) -> Self::EncodeAsync<'a, E>
+    where
+        E: TrEncoder + 'a,
+        E::Ok: 'a,
+        E::Error: 'a,
+        Self: 'a,
+    {
+        encoder.encode_str(self.0.borrow())
+    }
+}
+
+struct HandKeyVisitor<S>(PhantomData<S>);
+
+impl<'de, S> Visitor<'de> for HandKeyVisitor<S>
+where
+    S: Borrow<str> + From<String> + 'de,
+{
+    type Value = HandKey<S>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a string key")
+    }
+
+    fn visit_str<'a, E>(
+        self,
+        value: &'a str,
+    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
+    where
+        Self: 'a,
+        Self::Value: 'a,
+        E: de::Error + 'a,
+    {
+        future::ready(Ok(HandKey(S::from(String::from(value)))))
+    }
+}
+
+#[gen_may_cancel_future(DecodeHandKeyOp)]
+async fn decode_hand_key_async<'de, 'a, S, D, C>(de: D, cancel: C) -> Result<HandKey<S>, D::Error>
+where
+    'de: 'a,
+    S: Borrow<str> + From<String> + 'de + 'a,
+    D: TrDecoder<'de> + 'a,
+    D::Error: 'a,
+    C: abs_cancel::TrCancellationToken,
+{
+    de.decode_string(HandKeyVisitor::<S>(PhantomData))
+        .may_cancel_with(cancel)
+        .await
+}
+
+impl<'de, S> TrDecodable<'de> for HandKey<S>
+where
+    S: Borrow<str> + From<String> + 'de,
+{
+    type DecodeAsync<'a, D>
+        = DecodeHandKeyOpAsync<'de, 'a, 'a, S, D>
+    where
+        'de: 'a,
+        D: TrDecoder<'de> + 'a,
+        D::Error: 'a,
+        Self: 'a;
+
+    fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
+    where
+        'de: 'a,
+        D: TrDecoder<'de> + 'a,
+        D::Error: 'a,
+        Self: 'a,
+    {
+        DecodeHandKeyOpAsync::new(de)
+    }
+}
+
+/// 故意不实现 denco 编解码 trait 的字符串载体，用来证明外层 newtype 没有把
+/// `TrEncodable` / `TrDecodable` 约束错误地加到 `S` 上。
+///
+/// A string carrier that deliberately implements no denco codec traits, proving the
+/// outer newtype does not put `TrEncodable` / `TrDecodable` bounds on `S`.
+#[derive(Debug, PartialEq, Eq)]
+struct NoCodec(String);
+
+impl Borrow<str> for NoCodec {
+    fn borrow(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl From<String> for NoCodec {
+    fn from(value: String) -> Self {
+        NoCodec(value)
+    }
+}
+
 //-- ---- derive 类型 ----------------------------------------------------------
 
 #[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
@@ -263,6 +385,41 @@ struct Newtype(U64Val);
 #[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
 struct Generic<T> {
     value: T,
+}
+
+/// 类型参数名恰好是 `S` 的 transparent newtype：验证生成器不再把编码器的
+/// 泛型参数硬编码成 `S`，并验证 bound 落在 `HandKey<S>` 上而不是 `S` 上。
+///
+/// A transparent newtype whose type parameter is named `S`: the generator must not
+/// hard-code `S` as its encoder parameter, and the bounds must sit on `HandKey<S>`.
+#[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
+#[denco(transparent)]
+struct TransparentGeneric<S = String>(HandKey<S>)
+where
+    S: Borrow<str>;
+
+/// 类型参数名恰好是 `S` 的普通泛型结构体。
+///
+/// An ordinary generic struct whose type parameter is named `S`.
+#[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
+struct GenericS<S> {
+    value: S,
+}
+
+/// 类型参数名恰好是 `D` 的 newtype，用来验证 visitor 的解码器泛型不再遮蔽它。
+///
+/// A newtype whose type parameter is named `D`, checking that the visitor's decoder
+/// generic no longer shadows it.
+#[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
+struct GenericD<D>(D);
+
+/// 类型参数名恰好是 `A` 的命名结构体，用来验证 visitor 的访问器泛型不再遮蔽它。
+///
+/// A named struct whose type parameter is named `A`, checking that the visitor's
+/// accessor generic no longer shadows it.
+#[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
+struct GenericA<A> {
+    value: A,
 }
 
 #[derive(Debug, PartialEq, TrEncodable, TrDecodable)]
@@ -498,6 +655,51 @@ fn transparent_public_empty_alias_() {
     ];
     let aliased: Aliased = decode_(&bytes);
     assert_eq!(aliased, Aliased { id: U64Val(42) });
+}
+
+/// 测试 transparent newtype 在类型参数名为 `S` 时仍能派生，且编解码约束落在内层类型上。
+/// Test that a transparent newtype with a type parameter named `S` derives, with
+/// codec bounds on the inner type.
+///
+/// - 手段：用 `TransparentGeneric<NoCodec>` 包装手写编解码的 `HandKey`；`NoCodec`
+///   故意不实现 `TrEncodable` / `TrDecodable`，只实现 `Borrow<str>` 与 `From<String>`。
+/// - 判断：若生成器把 `S: TrEncodable` / `S: TrDecodable` 写进 impl，`NoCodec` 会让
+///   本测试无法编译；编译通过且往返值相等即通过。
+///
+/// - Means: wrap the hand-written `HandKey` in `TransparentGeneric<NoCodec>`, where
+///   `NoCodec` deliberately implements no denco traits, only `Borrow<str>` and `From<String>`.
+/// - Verdict: a stray `S: TrEncodable` / `S: TrDecodable` bound would stop `NoCodec` from
+///   compiling; compiling and round-tripping equal is the pass condition.
+#[test]
+fn transparent_generic_named_s_() {
+    let value = TransparentGeneric(HandKey(NoCodec(String::from("x-custom"))));
+    let bytes = encode_(&value);
+    let decoded: TransparentGeneric<NoCodec> = decode_(&bytes);
+    assert_eq!(decoded, value);
+}
+
+/// 测试生成器内部的隐式泛型参数不会与被 derive 类型的 `S` / `D` / `A` 冲突。
+/// Test that the generator's implicit generics do not collide with user type
+/// parameters named `S`, `D`, or `A`.
+///
+/// - 手段：分别往返 `GenericS`、`GenericD` 与 `GenericA`，三者分别覆盖编码 helper、
+///   newtype 解码 visitor 与命名结构体解码 visitor 的类型参数遮蔽路径。
+/// - 判断：三次往返结果都等于原值，且测试能编译（同名冲突会在编译期报错）。
+///
+/// - Means: round-trip `GenericS`, `GenericD`, and `GenericA`, covering the encoder
+///   helper, the newtype decode visitor, and the named-struct decode visitor.
+/// - Verdict: all three round-trips equal their inputs, and the test compiles (a name
+///   collision would be a compile error).
+#[test]
+fn generic_params_do_not_shadow_internal_names_() {
+    let s = GenericS { value: U64Val(5) };
+    assert_eq!(decode_::<GenericS<U64Val>>(&encode_(&s)), s);
+
+    let d = GenericD(U64Val(6));
+    assert_eq!(decode_::<GenericD<U64Val>>(&encode_(&d)), d);
+
+    let a = GenericA { value: U64Val(7) };
+    assert_eq!(decode_::<GenericA<U64Val>>(&encode_(&a)), a);
 }
 
 /// 验证枚举的 `rename_all` 会作用于变体名。

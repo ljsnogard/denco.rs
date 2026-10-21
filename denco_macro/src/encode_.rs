@@ -63,24 +63,35 @@ fn encode_helper_(
     let ty_generics = model.ty_generics_();
     let type_params = model.type_params_();
     let mut generics = model.generics_.clone();
-    generics.params.insert(0, parse_quote!('a));
-    generics.params.push(parse_quote!(S));
-    generics.params.push(parse_quote!(C));
+    generics.params.insert(0, parse_quote!('__denco_a));
+    generics.params.push(parse_quote!(__DencoEncoder));
+    generics.params.push(parse_quote!(__DencoCancel));
     {
         let where_clause = generics.make_where_clause();
-        for param in &type_params {
-            where_clause
+        match model.transparent_inner_ty_() {
+            Option::Some(inner_ty) => where_clause
                 .predicates
-                .push(parse_quote!(#param: abs_denco::ser::TrEncodable));
+                .push(parse_quote!(#inner_ty: abs_denco::ser::TrEncodable)),
+            Option::None => {
+                for param in &type_params {
+                    where_clause
+                        .predicates
+                        .push(parse_quote!(#param: abs_denco::ser::TrEncodable));
+                }
+            }
         }
         where_clause
             .predicates
-            .push(parse_quote!(S: abs_denco::ser::TrEncoder + 'a));
-        where_clause.predicates.push(parse_quote!(S::Ok: 'a));
-        where_clause.predicates.push(parse_quote!(S::Error: 'a));
+            .push(parse_quote!(__DencoEncoder: abs_denco::ser::TrEncoder + '__denco_a));
         where_clause
             .predicates
-            .push(parse_quote!(C: abs_cancel::TrCancellationToken));
+            .push(parse_quote!(__DencoEncoder::Ok: '__denco_a));
+        where_clause
+            .predicates
+            .push(parse_quote!(__DencoEncoder::Error: '__denco_a));
+        where_clause
+            .predicates
+            .push(parse_quote!(__DencoCancel: abs_cancel::TrCancellationToken));
     }
     let (fn_generics, _, where_clause) = generics.split_for_impl();
     let body = encode_body_(model);
@@ -91,10 +102,10 @@ fn encode_helper_(
         #[doc(hidden)]
         #[allow(non_snake_case, clippy::all, missing_docs)]
         #vis async fn #op_fn #fn_generics (
-            value: &'a #ident #ty_generics,
-            encoder: S,
-            cancel: C,
-        ) -> ::core::result::Result<S::Ok, S::Error>
+            value: &'__denco_a #ident #ty_generics,
+            encoder: __DencoEncoder,
+            cancel: __DencoCancel,
+        ) -> ::core::result::Result<__DencoEncoder::Ok, __DencoEncoder::Error>
         #where_clause
         {
             #body
@@ -114,30 +125,40 @@ fn encode_impl_(model: &TypeModel, op_async: &syn::Ident) -> TokenStream {
     let mut generics = model.generics_.clone();
     {
         let where_clause = generics.make_where_clause();
-        for param in &type_params {
-            where_clause
+        match model.transparent_inner_ty_() {
+            Option::Some(inner_ty) => where_clause
                 .predicates
-                .push(parse_quote!(#param: abs_denco::ser::TrEncodable));
+                .push(parse_quote!(#inner_ty: abs_denco::ser::TrEncodable)),
+            Option::None => {
+                for param in &type_params {
+                    where_clause
+                        .predicates
+                        .push(parse_quote!(#param: abs_denco::ser::TrEncodable));
+                }
+            }
         }
     }
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     quote! {
         impl #impl_generics abs_denco::ser::TrEncodable for #ident #ty_generics #where_clause {
-            type EncodeAsync<'a, S>
-                = #op_async<'a, 'a, #(#type_params,)* S, #(#const_params,)*>
+            type EncodeAsync<'__denco_a, __DencoEncoder>
+                = #op_async<'__denco_a, '__denco_a, #(#type_params,)* __DencoEncoder, #(#const_params,)*>
             where
-                Self: 'a,
-                S: abs_denco::ser::TrEncoder + 'a,
-                S::Ok: 'a,
-                S::Error: 'a;
+                Self: '__denco_a,
+                __DencoEncoder: abs_denco::ser::TrEncoder + '__denco_a,
+                __DencoEncoder::Ok: '__denco_a,
+                __DencoEncoder::Error: '__denco_a;
 
-            fn encode_async<'a, S>(&'a self, encoder: S) -> Self::EncodeAsync<'a, S>
+            fn encode_async<'__denco_a, __DencoEncoder>(
+                &'__denco_a self,
+                encoder: __DencoEncoder,
+            ) -> Self::EncodeAsync<'__denco_a, __DencoEncoder>
             where
-                Self: 'a,
-                S: abs_denco::ser::TrEncoder + 'a,
-                S::Ok: 'a,
-                S::Error: 'a,
+                Self: '__denco_a,
+                __DencoEncoder: abs_denco::ser::TrEncoder + '__denco_a,
+                __DencoEncoder::Ok: '__denco_a,
+                __DencoEncoder::Error: '__denco_a,
             {
                 #op_async::new(self, encoder)
             }

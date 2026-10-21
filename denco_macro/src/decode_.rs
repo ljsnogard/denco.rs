@@ -80,13 +80,13 @@ fn decode_unit_struct_(model: &TypeModel, prefix: &Ident) -> Parts {
         &visitor_ident,
         quote! {
 
-            fn visit_unit<'a, E>(
+            fn visit_unit<'a, __DencoError>(
                 self,
-            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, E>>
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, __DencoError>>
             where
                 Self: 'a,
                 Self::Value: 'a,
-                E: abs_denco::de::Error + 'a,
+                __DencoError: abs_denco::de::Error + 'a,
             {
                 ::core::future::ready(::core::result::Result::Ok(#ident))
             }
@@ -141,9 +141,9 @@ fn decode_newtype_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldMode
     let mut generics = model.generics_.clone();
     generics.params.insert(0, parse_quote!('de));
     generics.params.insert(1, parse_quote!('a));
-    generics.params.push(parse_quote!(D));
-    generics.params.push(parse_quote!(C));
-    add_decode_bounds_(&mut generics, &model.type_params_(), quote!(D));
+    generics.params.push(parse_quote!(__DencoDecoder));
+    generics.params.push(parse_quote!(__DencoCancel));
+    add_decode_bounds_(&mut generics, model, quote!(__DencoDecoder));
     let (fn_generics, _, where_clause) = generics.split_for_impl();
     let ty_generics = model.ty_generics_();
     let type_args = type_args_(model);
@@ -151,7 +151,7 @@ fn decode_newtype_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldMode
 
     let newtype_fn_def = quote! {
         #[gen_mcf2::gen_may_cancel_future(#newtype_op)]
-        async fn #newtype_fn #fn_generics (de: D, cancel: C) -> ::core::result::Result<#ident #ty_generics, D::Error>
+        async fn #newtype_fn #fn_generics (de: __DencoDecoder, cancel: __DencoCancel) -> ::core::result::Result<#ident #ty_generics, __DencoDecoder::Error>
         #where_clause
         {
             let value = <#inner_ty as abs_denco::de::TrDecodable<'de>>::decode_async(de)
@@ -168,18 +168,18 @@ fn decode_newtype_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldMode
         &visitor_ident,
         quote! {
 
-            fn visit_newtype_struct<'a, D>(
+            fn visit_newtype_struct<'a, __DencoDecoder>(
                 self,
-                de: D,
-            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, D::Error>>
+                de: __DencoDecoder,
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, __DencoDecoder::Error>>
             where
                 'de: 'a,
                 Self: 'a,
                 Self::Value: 'a,
-                D: abs_denco::de::TrDecoder<'de> + 'a,
-                D::Error: 'a,
+                __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+                __DencoDecoder::Error: 'a,
             {
-                #newtype_async::<'de, 'a, 'a, #(#type_args,)* D, #(#const_args,)*>::new(de)
+                #newtype_async::<'de, 'a, 'a, #(#type_args,)* __DencoDecoder, #(#const_args,)*>::new(de)
             }
         },
     );
@@ -419,8 +419,8 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
     let mut generics = model.generics_.clone();
     generics.params.insert(0, parse_quote!('de));
     generics.params.insert(1, parse_quote!('a));
-    generics.params.push(parse_quote!(A));
-    generics.params.push(parse_quote!(C));
+    generics.params.push(parse_quote!(__DencoAccess));
+    generics.params.push(parse_quote!(__DencoCancel));
     {
         let where_clause = generics.make_where_clause();
         for param in model.type_params_() {
@@ -431,11 +431,13 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
         where_clause.predicates.push(parse_quote!('de: 'a));
         where_clause
             .predicates
-            .push(parse_quote!(A: abs_denco::de::EnumAccess<'de> + 'a));
-        where_clause.predicates.push(parse_quote!(A::Error: 'a));
+            .push(parse_quote!(__DencoAccess: abs_denco::de::EnumAccess<'de> + 'a));
         where_clause
             .predicates
-            .push(parse_quote!(C: abs_cancel::TrCancellationToken));
+            .push(parse_quote!(__DencoAccess::Error: 'a));
+        where_clause
+            .predicates
+            .push(parse_quote!(__DencoCancel: abs_cancel::TrCancellationToken));
     }
     let (fn_generics, _, where_clause) = generics.split_for_impl();
     let ty_generics = model.ty_generics_();
@@ -444,9 +446,9 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
     let dispatch_fn_def = quote! {
         #[gen_mcf2::gen_may_cancel_future(#dispatch_op)]
         async fn #dispatch_fn #fn_generics (
-            data: A,
-            cancel: C,
-        ) -> ::core::result::Result<#enum_ident #ty_generics, A::Error>
+            data: __DencoAccess,
+            cancel: __DencoCancel,
+        ) -> ::core::result::Result<#enum_ident #ty_generics, __DencoAccess::Error>
         #where_clause
         {
             let (variant, access) = data
@@ -467,18 +469,18 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
         &visitor_ident,
         quote! {
 
-            fn visit_enum<'a, A>(
+            fn visit_enum<'a, __DencoAccess>(
                 self,
-                data: A,
-            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, A::Error>>
+                data: __DencoAccess,
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, __DencoAccess::Error>>
             where
                 'de: 'a,
                 Self: 'a,
                 Self::Value: 'a,
-                A: abs_denco::de::EnumAccess<'de> + 'a,
-                A::Error: 'a,
+                __DencoAccess: abs_denco::de::EnumAccess<'de> + 'a,
+                __DencoAccess::Error: 'a,
             {
-                #dispatch_async::<'de, 'a, 'a, #(#type_args,)* A, #(#const_args,)*>::new(data)
+                #dispatch_async::<'de, 'a, 'a, #(#type_args,)* __DencoAccess, #(#const_args,)*>::new(data)
             }
         },
     );
@@ -530,9 +532,9 @@ fn decode_entry_(
     let mut generics = model.generics_.clone();
     generics.params.insert(0, parse_quote!('de));
     generics.params.insert(1, parse_quote!('a));
-    generics.params.push(parse_quote!(D));
-    generics.params.push(parse_quote!(C));
-    add_decode_bounds_(&mut generics, &type_params, quote!(D));
+    generics.params.push(parse_quote!(__DencoDecoder));
+    generics.params.push(parse_quote!(__DencoCancel));
+    add_decode_bounds_(&mut generics, model, quote!(__DencoDecoder));
     let (fn_generics, _, where_clause) = generics.split_for_impl();
 
     let vis = &model.vis_;
@@ -541,9 +543,9 @@ fn decode_entry_(
         #[doc(hidden)]
         #[allow(missing_docs)]
         #vis async fn #op_fn #fn_generics (
-            de: D,
-            cancel: C,
-        ) -> ::core::result::Result<#ident #ty_generics, D::Error>
+            de: __DencoDecoder,
+            cancel: __DencoCancel,
+        ) -> ::core::result::Result<#ident #ty_generics, __DencoDecoder::Error>
         #where_clause
         {
             #decode_call
@@ -554,28 +556,35 @@ fn decode_entry_(
     impl_generics.params.insert(0, parse_quote!('de));
     {
         let where_clause = impl_generics.make_where_clause();
-        for param in &type_params {
-            where_clause
+        match model.transparent_inner_ty_() {
+            Option::Some(inner_ty) => where_clause
                 .predicates
-                .push(parse_quote!(#param: abs_denco::de::TrDecodable<'de> + 'de));
+                .push(parse_quote!(#inner_ty: abs_denco::de::TrDecodable<'de> + 'de)),
+            Option::None => {
+                for param in &type_params {
+                    where_clause
+                        .predicates
+                        .push(parse_quote!(#param: abs_denco::de::TrDecodable<'de> + 'de));
+                }
+            }
         }
     }
     let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
     let impl_ = quote! {
         impl #impl_generics abs_denco::de::TrDecodable<'de> for #ident #ty_generics #where_clause {
-            type DecodeAsync<'a, D>
-                = #op_async<'de, 'a, 'a, #(#type_args,)* D, #(#const_args,)*>
+            type DecodeAsync<'a, __DencoDecoder>
+                = #op_async<'de, 'a, 'a, #(#type_args,)* __DencoDecoder, #(#const_args,)*>
             where
                 'de: 'a,
-                D: abs_denco::de::TrDecoder<'de> + 'a,
-                D::Error: 'a,
+                __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+                __DencoDecoder::Error: 'a,
                 Self: 'a;
 
-            fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
+            fn decode_async<'a, __DencoDecoder>(de: __DencoDecoder) -> Self::DecodeAsync<'a, __DencoDecoder>
             where
                 'de: 'a,
-                D: abs_denco::de::TrDecoder<'de> + 'a,
-                D::Error: 'a,
+                __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+                __DencoDecoder::Error: 'a,
                 Self: 'a,
             {
                 #op_async::new(de)
@@ -585,13 +594,20 @@ fn decode_entry_(
     (helper, impl_)
 }
 
-fn add_decode_bounds_(generics: &mut syn::Generics, type_params: &[Ident], decoder: TokenStream) {
+fn add_decode_bounds_(generics: &mut syn::Generics, model: &TypeModel, decoder: TokenStream) {
     let where_clause = generics.make_where_clause();
     where_clause.predicates.push(parse_quote!('de: 'a));
-    for param in type_params {
-        where_clause
+    match model.transparent_inner_ty_() {
+        Option::Some(inner_ty) => where_clause
             .predicates
-            .push(parse_quote!(#param: abs_denco::de::TrDecodable<'de> + 'de));
+            .push(parse_quote!(#inner_ty: abs_denco::de::TrDecodable<'de> + 'de)),
+        Option::None => {
+            for param in model.type_params_() {
+                where_clause
+                    .predicates
+                    .push(parse_quote!(#param: abs_denco::de::TrDecodable<'de> + 'de));
+            }
+        }
     }
     where_clause
         .predicates
@@ -601,7 +617,7 @@ fn add_decode_bounds_(generics: &mut syn::Generics, type_params: &[Ident], decod
         .push(parse_quote!(#decoder::Error: 'a));
     where_clause
         .predicates
-        .push(parse_quote!(C: abs_cancel::TrCancellationToken));
+        .push(parse_quote!(__DencoCancel: abs_cancel::TrCancellationToken));
 }
 
 fn visitor_def_(model: &TypeModel, visitor_ident: &Ident) -> TokenStream {
@@ -704,19 +720,19 @@ fn field_key_items_(
                 formatter.write_str("a field identifier")
             }
 
-            fn visit_str<'a, E>(
+            fn visit_str<'a, __DencoError>(
                 self,
                 value: &'a str,
-            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, E>>
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, __DencoError>>
             where
                 Self: 'a,
                 Self::Value: 'a,
-                E: abs_denco::de::Error + 'a,
+                __DencoError: abs_denco::de::Error + 'a,
             {
                 match value {
                     #(#arms,)*
                     _ => ::core::future::ready(::core::result::Result::Err(
-                        <E as abs_denco::de::Error>::unknown_field(
+                        <__DencoError as abs_denco::de::Error>::unknown_field(
                             value,
                             &[#(#expected),*],
                         ),
@@ -730,20 +746,20 @@ fn field_key_items_(
         impl<'de> abs_denco::de::TrDecodableSeed<'de> for #seed_ident {
             type Value = #enum_ident;
 
-            type DecodeAsync<'a, D>
-                = #op_async<'de, 'a, 'a, D>
+            type DecodeAsync<'a, __DencoDecoder>
+                = #op_async<'de, 'a, 'a, __DencoDecoder>
             where
                 'de: 'a,
-                D: abs_denco::de::TrDecoder<'de> + 'a,
-                D::Error: 'a,
+                __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+                __DencoDecoder::Error: 'a,
                 Self: 'a,
                 Self::Value: 'a;
 
-            fn decode_async<'a, D>(self, de: D) -> Self::DecodeAsync<'a, D>
+            fn decode_async<'a, __DencoDecoder>(self, de: __DencoDecoder) -> Self::DecodeAsync<'a, __DencoDecoder>
             where
                 'de: 'a,
-                D: abs_denco::de::TrDecoder<'de> + 'a,
-                D::Error: 'a,
+                __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+                __DencoDecoder::Error: 'a,
                 Self: 'a,
                 Self::Value: 'a,
             {
@@ -752,15 +768,15 @@ fn field_key_items_(
         }
 
         #[gen_mcf2::gen_may_cancel_future(#op_ident)]
-        async fn #field_op_fn<'de, 'a, D, C>(
-            de: D,
-            cancel: C,
-        ) -> ::core::result::Result<#enum_ident, D::Error>
+        async fn #field_op_fn<'de, 'a, __DencoDecoder, __DencoCancel>(
+            de: __DencoDecoder,
+            cancel: __DencoCancel,
+        ) -> ::core::result::Result<#enum_ident, __DencoDecoder::Error>
         where
             'de: 'a,
-            D: abs_denco::de::TrDecoder<'de> + 'a,
-            D::Error: 'a,
-            C: abs_cancel::TrCancellationToken,
+            __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+            __DencoDecoder::Error: 'a,
+            __DencoCancel: abs_cancel::TrCancellationToken,
         {
             de.decode_identifier(#visitor_ident)
                 .may_cancel_with(cancel)
@@ -783,8 +799,8 @@ fn map_helper_(
     let mut generics = model.generics_.clone();
     generics.params.insert(0, parse_quote!('de));
     generics.params.insert(1, parse_quote!('a));
-    generics.params.push(parse_quote!(A));
-    generics.params.push(parse_quote!(C));
+    generics.params.push(parse_quote!(__DencoAccess));
+    generics.params.push(parse_quote!(__DencoCancel));
     {
         let where_clause = generics.make_where_clause();
         for param in model.type_params_() {
@@ -795,11 +811,13 @@ fn map_helper_(
         where_clause.predicates.push(parse_quote!('de: 'a));
         where_clause
             .predicates
-            .push(parse_quote!(A: abs_denco::de::MapAccess<'de> + 'a));
-        where_clause.predicates.push(parse_quote!(A::Error: 'a));
+            .push(parse_quote!(__DencoAccess: abs_denco::de::MapAccess<'de> + 'a));
         where_clause
             .predicates
-            .push(parse_quote!(C: abs_cancel::TrCancellationToken));
+            .push(parse_quote!(__DencoAccess::Error: 'a));
+        where_clause
+            .predicates
+            .push(parse_quote!(__DencoCancel: abs_cancel::TrCancellationToken));
         for field in fields {
             if field.skip_decoding_ || field.is_phantom_ {
                 let ty = &field.ty_;
@@ -843,7 +861,7 @@ fn map_helper_(
             #field_enum::#variant => {
                 if #binding.is_some() {
                     return ::core::result::Result::Err(
-                        <A::Error as abs_denco::de::Error>::duplicate_field(#field_name),
+                        <__DencoAccess::Error as abs_denco::de::Error>::duplicate_field(#field_name),
                     );
                 }
                 #binding = ::core::option::Option::Some(
@@ -860,7 +878,7 @@ fn map_helper_(
         } else {
             quote! {
                 #binding.ok_or_else(|| {
-                    <A::Error as abs_denco::de::Error>::missing_field(#field_name)
+                    <__DencoAccess::Error as abs_denco::de::Error>::missing_field(#field_name)
                 })?
             }
         };
@@ -900,9 +918,9 @@ fn map_helper_(
     let helper = quote! {
         #[gen_mcf2::gen_may_cancel_future(#op_ident)]
         async fn #map_fn #fn_generics (
-            mut map: A,
-            cancel: C,
-        ) -> ::core::result::Result<#target_ty #ty_generics, A::Error>
+            mut map: __DencoAccess,
+            cancel: __DencoCancel,
+        ) -> ::core::result::Result<#target_ty #ty_generics, __DencoAccess::Error>
         #where_clause
         {
             #(#init)*
@@ -922,18 +940,18 @@ fn map_helper_(
     };
 
     let visitor_method = quote! {
-        fn visit_map<'a, A>(
+        fn visit_map<'a, __DencoAccess>(
             self,
-            map: A,
-        ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, A::Error>>
+            map: __DencoAccess,
+        ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, __DencoAccess::Error>>
         where
             'de: 'a,
             Self: 'a,
             Self::Value: 'a,
-            A: abs_denco::de::MapAccess<'de> + 'a,
-            A::Error: 'a,
+            __DencoAccess: abs_denco::de::MapAccess<'de> + 'a,
+            __DencoAccess::Error: 'a,
         {
-            #map_async::<'de, 'a, 'a, #(#type_args,)* A, #(#const_args,)*>::new(map)
+            #map_async::<'de, 'a, 'a, #(#type_args,)* __DencoAccess, #(#const_args,)*>::new(map)
         }
     };
 
@@ -952,8 +970,8 @@ fn seq_helper_(
     let mut generics = model.generics_.clone();
     generics.params.insert(0, parse_quote!('de));
     generics.params.insert(1, parse_quote!('a));
-    generics.params.push(parse_quote!(A));
-    generics.params.push(parse_quote!(C));
+    generics.params.push(parse_quote!(__DencoAccess));
+    generics.params.push(parse_quote!(__DencoCancel));
     {
         let where_clause = generics.make_where_clause();
         for param in model.type_params_() {
@@ -964,11 +982,13 @@ fn seq_helper_(
         where_clause.predicates.push(parse_quote!('de: 'a));
         where_clause
             .predicates
-            .push(parse_quote!(A: abs_denco::de::SeqAccess<'de> + 'a));
-        where_clause.predicates.push(parse_quote!(A::Error: 'a));
+            .push(parse_quote!(__DencoAccess: abs_denco::de::SeqAccess<'de> + 'a));
         where_clause
             .predicates
-            .push(parse_quote!(C: abs_cancel::TrCancellationToken));
+            .push(parse_quote!(__DencoAccess::Error: 'a));
+        where_clause
+            .predicates
+            .push(parse_quote!(__DencoCancel: abs_cancel::TrCancellationToken));
         for field in fields {
             if field.skip_decoding_ || field.is_phantom_ {
                 let ty = &field.ty_;
@@ -1022,7 +1042,7 @@ fn seq_helper_(
                     .may_cancel_with(cancel.child_token())
                     .await?
                     .ok_or_else(|| {
-                        <A::Error as abs_denco::de::Error>::invalid_length(#index, &#expecting)
+                        <__DencoAccess::Error as abs_denco::de::Error>::invalid_length(#index, &#expecting)
                     })?;
             });
         }
@@ -1053,9 +1073,9 @@ fn seq_helper_(
     let helper = quote! {
         #[gen_mcf2::gen_may_cancel_future(#op_ident)]
         async fn #seq_fn #fn_generics (
-            mut seq: A,
-            cancel: C,
-        ) -> ::core::result::Result<#target_ty #ty_generics, A::Error>
+            mut seq: __DencoAccess,
+            cancel: __DencoCancel,
+        ) -> ::core::result::Result<#target_ty #ty_generics, __DencoAccess::Error>
         #where_clause
         {
             #(#reads)*
@@ -1064,18 +1084,18 @@ fn seq_helper_(
     };
 
     let visitor_method = quote! {
-        fn visit_seq<'a, A>(
+        fn visit_seq<'a, __DencoAccess>(
             self,
-            seq: A,
-        ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, A::Error>>
+            seq: __DencoAccess,
+        ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, __DencoAccess::Error>>
         where
             'de: 'a,
             Self: 'a,
             Self::Value: 'a,
-            A: abs_denco::de::SeqAccess<'de> + 'a,
-            A::Error: 'a,
+            __DencoAccess: abs_denco::de::SeqAccess<'de> + 'a,
+            __DencoAccess::Error: 'a,
         {
-            #seq_async::<'de, 'a, 'a, #(#type_args,)* A, #(#const_args,)*>::new(seq)
+            #seq_async::<'de, 'a, 'a, #(#type_args,)* __DencoAccess, #(#const_args,)*>::new(seq)
         }
     };
 
@@ -1114,19 +1134,19 @@ fn variant_key_items_(
                 formatter.write_str("a variant identifier")
             }
 
-            fn visit_str<'a, E>(
+            fn visit_str<'a, __DencoError>(
                 self,
                 value: &'a str,
-            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, E>>
+            ) -> impl abs_cancel::TrMayCancel<'a, MayCancelOutput = ::core::result::Result<Self::Value, __DencoError>>
             where
                 Self: 'a,
                 Self::Value: 'a,
-                E: abs_denco::de::Error + 'a,
+                __DencoError: abs_denco::de::Error + 'a,
             {
                 match value {
                     #(#arms,)*
                     _ => ::core::future::ready(::core::result::Result::Err(
-                        <E as abs_denco::de::Error>::unknown_variant(
+                        <__DencoError as abs_denco::de::Error>::unknown_variant(
                             value,
                             &[#(#expected),*],
                         ),
@@ -1140,20 +1160,20 @@ fn variant_key_items_(
         impl<'de> abs_denco::de::TrDecodableSeed<'de> for #seed_ident {
             type Value = #enum_ident;
 
-            type DecodeAsync<'a, D>
-                = #op_async<'de, 'a, 'a, D>
+            type DecodeAsync<'a, __DencoDecoder>
+                = #op_async<'de, 'a, 'a, __DencoDecoder>
             where
                 'de: 'a,
-                D: abs_denco::de::TrDecoder<'de> + 'a,
-                D::Error: 'a,
+                __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+                __DencoDecoder::Error: 'a,
                 Self: 'a,
                 Self::Value: 'a;
 
-            fn decode_async<'a, D>(self, de: D) -> Self::DecodeAsync<'a, D>
+            fn decode_async<'a, __DencoDecoder>(self, de: __DencoDecoder) -> Self::DecodeAsync<'a, __DencoDecoder>
             where
                 'de: 'a,
-                D: abs_denco::de::TrDecoder<'de> + 'a,
-                D::Error: 'a,
+                __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+                __DencoDecoder::Error: 'a,
                 Self: 'a,
                 Self::Value: 'a,
             {
@@ -1162,15 +1182,15 @@ fn variant_key_items_(
         }
 
         #[gen_mcf2::gen_may_cancel_future(#op_ident)]
-        async fn #variant_op_fn<'de, 'a, D, C>(
-            de: D,
-            cancel: C,
-        ) -> ::core::result::Result<#enum_ident, D::Error>
+        async fn #variant_op_fn<'de, 'a, __DencoDecoder, __DencoCancel>(
+            de: __DencoDecoder,
+            cancel: __DencoCancel,
+        ) -> ::core::result::Result<#enum_ident, __DencoDecoder::Error>
         where
             'de: 'a,
-            D: abs_denco::de::TrDecoder<'de> + 'a,
-            D::Error: 'a,
-            C: abs_cancel::TrCancellationToken,
+            __DencoDecoder: abs_denco::de::TrDecoder<'de> + 'a,
+            __DencoDecoder::Error: 'a,
+            __DencoCancel: abs_cancel::TrCancellationToken,
         {
             de.decode_identifier(#visitor_ident)
                 .may_cancel_with(cancel)

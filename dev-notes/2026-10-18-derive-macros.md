@@ -98,6 +98,7 @@ unit/newtype/tuple/named 形状，以及常用的 `denco(...)` 重命名、跳�
 - unit / newtype / tuple / named 结构体；
 - 四种枚举变体与 `rename_all`；
 - 泛型与 const 泛型；
+- 类型参数恰好叫 `S` / `D` / `A` 的泛型结构体与 transparent newtype；
 - `skip`、`default`、`alias`、`transparent`、空命名结构体；
 - 与 `rmp_serde::to_vec` 的字节级一致性；
 - `mp_denco/tests/derive_interop_.rs`：包含 `String`、数组、`Vec`、
@@ -105,3 +106,39 @@ unit/newtype/tuple/named 形状，以及常用的 `denco(...)` 重命名、跳�
 
 `cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`
 与 `format_use_imports.py --check` 均通过。
+
+## 7. transparent 与泛型的命名 / bound 修复（2026-10-22）
+
+**结论**：`#[denco(transparent)]` 现在可用于带泛型参数的 newtype，且编解码
+约束落在**内层字段类型**上，而不是类型参数上。
+
+**背景**：`mptp_smux` 正在把 `HeaderEntry` 拆成 `HeaderKey<S>` /
+`HeaderVal<S>`，二者都是 `U16OrStr<S>` 的 newtype；`U16OrStr` 已手写
+`TrEncodable` / `TrDecodable`（头键的线上格式是裸整数或字符串，不写变体
+标签）。直接给两个 newtype 加 `#[denco(transparent)]` 时编译失败，暴露出
+两个生成器缺陷：
+
+1. `encode_helper_` / `encode_impl_` 把 encoder 泛型参数硬编码为 `S`，与
+   `HeaderKey<S>` 的类型参数同名，报 `E0403`；解码侧的 `D` / `C` / `A`
+   以及 visitor 方法里的 `D` / `A` / `E` 也会遮蔽用户类型参数。
+2. transparent 只改了「怎样调用内层实现」，没有改「要求什么」：生成的
+   impl 仍无条件给每个类型参数加 `TrEncodable` / `TrDecodable`。而
+   `U16OrStr<S>` 的解码要求 `S: From<String>`，这个条件没有出现在生成的
+   impl 上，报 `E0277`。
+
+**决策**：
+
+- 生成器内部插入的泛型参数统一改为不可能与用户冲突的名字：
+  `'__denco_a`、`__DencoEncoder`、`__DencoDecoder`、`__DencoCancel`、
+  `__DencoAccess`、`__DencoError`；visitor 方法签名里的泛型也包含在内。
+  用户泛型仍保留原顺序（lifetime 最前，取消令牌最后）。
+- transparent 时，impl 与 helper 的 bound 改为落在内层字段类型上：
+  `Inner: TrEncodable` / `Inner: TrDecodable<'de> + 'de`；非 transparent
+  保持原有行为。
+- 不改变宏的属性 API，下游只需给 newtype 加 `#[denco(transparent)]`。
+
+**后果与验证**：新增 `TransparentGeneric<S>`（内层 `HandKey<S>` 手写编解码，
+`S = NoCodec` 故意不实现任何 denco trait）与 `GenericS` / `GenericD` /
+`GenericA` 回归用例，`cargo test -p denco_macro` 13 个用例通过。用本地
+patch 验证 `HeaderKey` / `HeaderVal` 时，宏不再产生 `E0403` / `E0277`；
+`mptp_smux` 剩余的报错来自那次重构自身的 WIP。

@@ -72,6 +72,26 @@ impl TypeModel {
         let (_, ty_generics, _) = self.generics_.split_for_impl();
         ty_generics
     }
+
+    /// 若本类型是 `#[denco(transparent)]` 的 newtype，返回其内层字段类型。
+    ///
+    /// 透明 newtype 的编解码约束应落在内层类型上，而不是落在类型参数上：
+    /// 生成器据此区分「要求 `U16OrStr<S>: TrEncodable`」与「要求 `S: TrEncodable`」。
+    ///
+    /// Returns the inner field type of a `#[denco(transparent)]` newtype, if any.
+    /// The generated impls put their codec bounds on this inner type instead of on the
+    /// type parameters, so a newtype can forward to a hand-written inner impl.
+    pub(crate) fn transparent_inner_ty_(&self) -> Option<&Type> {
+        if !self.transparent_ {
+            return Option::None;
+        }
+        match &self.kind_ {
+            Kind::Struct(FieldsModel::Unnamed(fields)) if fields.len() == 1 => {
+                Option::Some(&fields[0].ty_)
+            }
+            _ => Option::None,
+        }
+    }
 }
 
 
