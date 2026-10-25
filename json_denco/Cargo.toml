@@ -3,6 +3,7 @@ name = "json_denco"
 version = "0.1.0"
 edition = "2024"
 description = "A streaming JSON format built on abs_denco and abs_buff."
+license.workspace = true
 
 [dependencies]
 abs_buff = { git = "https://gitee.com/lino_snsalias/buffex.rs.git" }

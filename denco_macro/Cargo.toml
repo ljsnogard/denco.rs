@@ -3,6 +3,7 @@ name = "denco_macro"
 version = "0.1.0"
 edition = "2024"
 description = "Derive macros for the denco framework."
+license.workspace = true
 
 [lib]
 proc-macro = true
