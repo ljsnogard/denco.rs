@@ -22,11 +22,11 @@
 /// fn assert_config<C: SerializerConfig>(_: C) {}
 /// assert_config(DefaultConfig);
 /// ```
-pub trait SerializerConfig: sealed::SerializerConfig {}
+pub trait SerializerConfig: sealed_::SerializerConfig {}
 
-impl<T: sealed::SerializerConfig> SerializerConfig for T {}
+impl<T: sealed_::SerializerConfig> SerializerConfig for T {}
 
-pub(crate) mod sealed {
+pub(crate) mod sealed_ {
     /// 密封的配置行为；只在 crate 内部实现。
     pub trait SerializerConfig: Copy {
         /// 结构体是否编码为带字段名的映射。
@@ -51,7 +51,7 @@ pub(crate) mod sealed {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DefaultConfig;
 
-impl sealed::SerializerConfig for DefaultConfig {
+impl sealed_::SerializerConfig for DefaultConfig {
     #[inline(always)]
     fn is_named(&self) -> bool {
         false
@@ -90,9 +90,9 @@ impl<C> StructMapConfig<C> {
     }
 }
 
-impl<C> sealed::SerializerConfig for StructMapConfig<C>
+impl<C> sealed_::SerializerConfig for StructMapConfig<C>
 where
-    C: sealed::SerializerConfig,
+    C: sealed_::SerializerConfig,
 {
     #[inline(always)]
     fn is_named(&self) -> bool {
@@ -133,9 +133,9 @@ impl<C> StructTupleConfig<C> {
     }
 }
 
-impl<C> sealed::SerializerConfig for StructTupleConfig<C>
+impl<C> sealed_::SerializerConfig for StructTupleConfig<C>
 where
-    C: sealed::SerializerConfig,
+    C: sealed_::SerializerConfig,
 {
     #[inline(always)]
     fn is_named(&self) -> bool {

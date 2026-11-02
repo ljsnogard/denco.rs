@@ -1,7 +1,7 @@
 **/target
 **/Cargo.lock
 **/.idea
+**/.tmp
 **/.vs
 **/.vscode
 **/.zed
-**/.tmp

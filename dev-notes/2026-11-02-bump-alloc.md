@@ -6,6 +6,12 @@
 allocator 并把借用结果交给 `TrDecodable`」会触及 `abs_denco` 的 GAT 接口限制，
 `mp_denco` / `json_denco` 单独无法完成。
 
+> **后续（2026-11-02 晚）**：本文的「借用 allocator 不可行」是在**现有
+> `TrDecoder<'de>` 单生命周期**下成立。之后讨论了 `TrDecoder<'de, 'alloc>` +
+> allocator 访问 + 引用版 `TrDecodable` 的重构方案，结论已转入
+> [`2026-11-02-alloc-lifetime-refactor.md`](2026-11-02-alloc-lifetime-refactor.md)。
+> 实施该重构后，本文 §3 的失败点不再是最终结论；请以新文档为准。
+
 ## 1. 为什么回滚 abs_denco
 
 `abs_denco` 的定位是 `serde` 式抽象层：只定义 trait 与约束，不绑定具体格式或

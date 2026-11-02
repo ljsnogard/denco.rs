@@ -65,3 +65,6 @@ extern crate std;
 
 pub mod de;
 pub mod ser;
+
+pub use de::{TrDecodable, TrDecoder};
+pub use ser::{TrEncodable, TrEncoder};
