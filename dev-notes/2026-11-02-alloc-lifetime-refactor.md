@@ -15,7 +15,7 @@ B1 方向已确认；`TrArena` 的异步化与「就地构造」取舍见 §11�
 
 **进展（2026-11-03）**：阶段 C 的两项 API 决策（容器 allocator 投影、字符串
 构造 trait 的衔接方式）已定稿并写入 §16，实施记录见 §17；目标 A/B 完成，
-sw-scope 继续暂缓。
+自定义 allocator 字段与 allocator 泛型参数的 derive 支持见 §18；sw-scope 继续暂缓。
 
 ## 1. 背景与问题
 
@@ -1273,3 +1273,66 @@ decoder 的 arena）与目标 B（`&'alloc str` / `&'alloc [u8]` + derive 生命
    整数序列）；
 3. `TrStrFromUtf8` 的增量 builder（长字符串流式写入，当前为整段一次构造）；
 4. 上游 `mm_ptr` 推送后移除本地 patch。
+
+## 18. 自定义 allocator 字段与 allocator 泛型参数（2026-11-03 续）
+
+**结论**：`Vec<T, MyAlloc>` / `Arc<T, MyAlloc>` 这类「字段使用其他 allocator」的
+结构体，以及 allocator 本身是泛型参数（`struct Holder<A: Allocator> { items:
+Vec<T, A> }`）的结构体，现在都能通过 `mp_denco` / `json_denco` 解码。具体
+allocator 的实现只需要提供 `TrAllocSource`；泛型参数由 derive 自动识别。
+
+### 18.1 暴露出的两个 derive 问题
+
+1. **内联约束被 `gen_mcf2` 拒绝**：`struct Holder<A: Allocator>` 的泛型被原样
+   复制进生成的 async fn，而 `gen_mcf2` 只接受 where 子句形式的约束，报
+   「请把泛型约束写在 where 子句里」。
+2. **allocator 参数被当成值参数**：derive 原来对所有类型参数无条件加
+   `A: TrDecodable` / `A: TrEncodable`。allocator 不是可解码的值，这条约束
+   不可满足；容器字段真正需要的是 `A: TrAllocSource`，它应由字段类型
+   `Vec<T, A>: TrDecodable` 反向传播。
+
+### 18.2 修复
+
+- `model_`：`parse_` 时规范化泛型——类型参数的内联约束移到 `where` 子句，
+  去掉泛型默认值；
+- 新增 `allocator_params_`：遍历所有字段类型（含嵌套容器），把出现在
+  `Vec` / `VecDeque` / `LinkedList` / `BinaryHeap` / `Box` / `Arc` / `Rc` /
+  `BTreeSet` 的第 2 个类型实参、`BTreeMap` / `HashSet` 的第 3 个、
+  `HashMap` 的第 4 个位置上的裸类型参数识别为 allocator 参数；
+- 解码侧：allocator 参数不再要求 `TrDecodable`；凡包含这些参数的字段补
+  `FieldTy: TrDecodable<'de, 'alloc, __DencoAlloc>`，`TrAllocSource` 要求因此
+  从容器 impl 传播到使用点。helper future 里再补 `A: 'a`（E0309）。
+  非 allocator 参数仍保留 `T: TrDecodable + 'de`，递归泛型类型不受影响。
+- 编码侧：allocator 参数不再要求 `TrEncodable`；`Vec<T, A>` / `Arc<T, A>` 的
+  编码 impl 只要求 `A: Allocator`，由用户声明的约束提供，不需要额外字段约束。
+- `#[denco(transparent)]` 的既有约定（约束落在内层字段而不是类型参数）不变。
+
+### 18.3 新增测试
+
+`denco_bumpalo/tests/foreign_alloc_.rs`：
+
+1. `concrete_alloc_fields_mp` / `_json`：`ConcreteAllocs` 的
+   `Vec<u32, CountingAlloc>` + `Arc<u32, CountingAlloc>` 字段，分别用
+   `NoArena` 与 `BumpArena` decoder 往返；
+2. `generic_alloc_fields_mp` / `_json`：`GenericAllocs<A: Allocator>` 的同类字段；
+3. `mixed_value_and_alloc_params`：`MixedAllocs<T, A>` 同时含值参数 `T` 与
+   allocator 参数 `A`，两种格式都往返。
+
+测试 allocator 用一个转发到 `Global` 的计数实现，并为**任意** arena 提供
+`TrAllocSource`（`impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> ...`），因此同一份
+数据既能用 `NoArena` 也能用 `BumpArena` 解码。
+
+### 18.4 已知限制
+
+- 只识别标准容器的 allocator 位置；自定义容器 `MyColl<T, A>` 会被当作值参数，
+  需要手写 `TrDecodable` / `TrEncodable`，或以后给 derive 增加显式标注；
+- 递归类型仍受 `gen_mcf2` 的 E0733（递归 async fn 需要 indirection）限制，
+  与 allocator 参数无关；
+- `BTreeMap` / `BTreeSet` 的 allocator 参数还需要用户在结构体上声明
+  `AllocatorClone`（与 `abs_denco` 的容器 impl 一致）。
+
+### 18.5 验证
+
+- `cargo test --workspace --all-features`：28 个测试块全绿（含
+  `foreign_alloc_` 5 个新用例）；
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`：通过。

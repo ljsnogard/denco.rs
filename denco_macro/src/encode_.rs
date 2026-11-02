@@ -69,7 +69,11 @@ fn encode_helper_(model: &TypeModel, op_prefix: &syn::Ident, op_fn: &syn::Ident)
                 .predicates
                 .push(parse_quote!(#inner_ty: abs_denco::ser::TrEncodable)),
             Option::None => {
+                let allocator_params = crate::model_::allocator_params_(model);
                 for param in &type_params {
+                    if allocator_params.contains(param) {
+                        continue;
+                    }
                     where_clause
                         .predicates
                         .push(parse_quote!(#param: abs_denco::ser::TrEncodable));
@@ -131,7 +135,11 @@ fn encode_impl_(model: &TypeModel, op_async: &syn::Ident) -> TokenStream {
                 .predicates
                 .push(parse_quote!(#inner_ty: abs_denco::ser::TrEncodable)),
             Option::None => {
+                let allocator_params = crate::model_::allocator_params_(model);
                 for param in &type_params {
+                    if allocator_params.contains(param) {
+                        continue;
+                    }
                     where_clause
                         .predicates
                         .push(parse_quote!(#param: abs_denco::ser::TrEncodable));

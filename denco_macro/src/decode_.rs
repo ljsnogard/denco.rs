@@ -430,11 +430,7 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
     generics.params.push(parse_quote!(__DencoCancel));
     {
         let where_clause = generics.make_where_clause();
-        for param in model.type_params_() {
-            where_clause.predicates.push(
-                parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de),
-            );
-        }
+        add_type_param_decode_bounds_fut_(where_clause, model);
         where_clause.predicates.push(parse_quote!('de: 'a));
         where_clause
             .predicates
@@ -534,7 +530,6 @@ fn decode_entry_(
 ) -> Parts {
     let ident = &model.ident_;
     let value_generics = value_ty_generics_(model);
-    let type_params = model.type_params_();
     let type_args = type_args_(model);
     let const_args = const_args_(model);
     let op_ident = name_(prefix, "Op");
@@ -580,11 +575,7 @@ fn decode_entry_(
                 .predicates
                 .push(parse_quote!(#inner_ty: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de)),
             Option::None => {
-                for param in &type_params {
-                    where_clause
-                        .predicates
-                        .push(parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de));
-                }
+                add_type_param_decode_bounds_(where_clause, model);
             }
         }
         add_field_bounds_(where_clause, model);
@@ -628,13 +619,7 @@ fn add_decode_bounds_(generics: &mut syn::Generics, model: &TypeModel, decoder: 
         Option::Some(inner_ty) => where_clause.predicates.push(
             parse_quote!(#inner_ty: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de),
         ),
-        Option::None => {
-            for param in model.type_params_() {
-                where_clause
-                    .predicates
-                    .push(parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de));
-            }
-        }
+        Option::None => add_type_param_decode_bounds_fut_(where_clause, model),
     }
     where_clause
         .predicates
@@ -694,11 +679,7 @@ fn visitor_impl_(model: &TypeModel, visitor_ident: &Ident, methods: TokenStream)
         where_clause
             .predicates
             .push(parse_quote!(__DencoAlloc: abs_denco::de::TrArena<'alloc> + 'alloc));
-        for param in model.type_params_() {
-            where_clause.predicates.push(
-                parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de),
-            );
-        }
+        add_type_param_decode_bounds_(where_clause, model);
         add_field_bounds_(where_clause, model);
     }
     let (impl_generics, _, where_clause) = generics.split_for_impl();
@@ -869,11 +850,7 @@ fn map_helper_(
     generics.params.push(parse_quote!(__DencoCancel));
     {
         let where_clause = generics.make_where_clause();
-        for param in model.type_params_() {
-            where_clause.predicates.push(
-                parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de),
-            );
-        }
+        add_type_param_decode_bounds_fut_(where_clause, model);
         where_clause.predicates.push(parse_quote!('de: 'a));
         where_clause
             .predicates
@@ -895,7 +872,7 @@ fn map_helper_(
                     .push(parse_quote!(#ty: ::core::default::Default));
             }
         }
-        add_field_bounds_for_(where_clause, fields);
+        add_field_bounds_for_(where_clause, model, fields);
     }
     let (fn_generics, _, where_clause) = generics.split_for_impl();
     let value_generics = value_ty_generics_(model);
@@ -1047,11 +1024,7 @@ fn seq_helper_(
     generics.params.push(parse_quote!(__DencoCancel));
     {
         let where_clause = generics.make_where_clause();
-        for param in model.type_params_() {
-            where_clause.predicates.push(
-                parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de),
-            );
-        }
+        add_type_param_decode_bounds_fut_(where_clause, model);
         where_clause.predicates.push(parse_quote!('de: 'a));
         where_clause
             .predicates
@@ -1073,7 +1046,7 @@ fn seq_helper_(
                     .push(parse_quote!(#ty: ::core::default::Default));
             }
         }
-        add_field_bounds_for_(where_clause, fields);
+        add_field_bounds_for_(where_clause, model, fields);
     }
     let (fn_generics, _, where_clause) = generics.split_for_impl();
     let value_generics = value_ty_generics_(model);
@@ -1341,30 +1314,84 @@ fn value_ty_generics_(model: &TypeModel) -> TokenStream {
     }
 }
 
-/// 给整个类型里所有借用 arena 的字段补 `TrDecodable` 约束。
+/// 给所有借用 arena 或使用 allocator 参数的字段补 `TrDecodable` 约束。
 fn add_field_bounds_(where_clause: &mut syn::WhereClause, model: &TypeModel) {
     let mut types = Vec::new();
     collect_field_types_(&model.kind_, &mut types);
-    push_field_bounds_(where_clause, &types);
+    push_field_bounds_(where_clause, model, &types);
 }
 
 /// 给指定字段补 `TrDecodable` 约束（枚举的单个变体使用）。
-fn add_field_bounds_for_(where_clause: &mut syn::WhereClause, fields: &[FieldModel]) {
+fn add_field_bounds_for_(
+    where_clause: &mut syn::WhereClause,
+    model: &TypeModel,
+    fields: &[FieldModel],
+) {
     let types: Vec<syn::Type> = fields
         .iter()
         .filter(|field| !field.skip_decoding_ && !field.is_phantom_)
         .map(|field| field.ty_.clone())
         .collect();
-    push_field_bounds_(where_clause, &types);
+    push_field_bounds_(where_clause, model, &types);
 }
 
-fn push_field_bounds_(where_clause: &mut syn::WhereClause, types: &[syn::Type]) {
+fn push_field_bounds_(where_clause: &mut syn::WhereClause, model: &TypeModel, types: &[syn::Type]) {
     for ty in types {
-        if crate::model_::ty_mentions_lifetime_(ty, "alloc") {
+        if field_needs_bound_(model, ty) {
             where_clause
                 .predicates
                 .push(parse_quote!(#ty: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc>));
         }
+    }
+}
+
+/// 字段是否需要显式的 `TrDecodable` 约束。
+///
+/// - 借用 arena 的字段（`&'alloc str` 等）需要它来传播 `TrArenaBytes`；
+/// - 使用 allocator 参数的字段（`Vec<T, A>`）需要它来传播 `TrAllocSource`，
+///   因为 allocator 参数本身不再要求 `A: TrDecodable`。
+fn field_needs_bound_(model: &TypeModel, ty: &syn::Type) -> bool {
+    if crate::model_::ty_mentions_lifetime_(ty, "alloc") {
+        return true;
+    }
+    crate::model_::allocator_params_(model)
+        .iter()
+        .any(|param| crate::model_::ty_mentions_ident_(ty, param))
+}
+
+/// 给非 allocator 的类型参数补 `TrDecodable` 约束（impl 上下文）。
+///
+/// allocator 参数（`Vec<T, A>` 里的 A）不能要求 `TrDecodable`；它由字段级约束
+/// 通过容器的 `TrAllocSource` 要求传播。impl 里的 GAT 已经声明 `Self: 'a`，
+/// 因此这里不需要额外的 outlives 约束。
+fn add_type_param_decode_bounds_(where_clause: &mut syn::WhereClause, model: &TypeModel) {
+    add_type_param_bounds_impl_(where_clause, model, false);
+}
+
+/// 与 [`add_type_param_decode_bounds_`] 相同，但用于带 `'a` 的 helper。
+///
+/// helper 没有 `Self: 'a` 这个前提，allocator 参数需要显式补 `A: 'a`，
+/// 否则生成的 future 结构体会报 E0309。
+fn add_type_param_decode_bounds_fut_(where_clause: &mut syn::WhereClause, model: &TypeModel) {
+    add_type_param_bounds_impl_(where_clause, model, true);
+}
+
+fn add_type_param_bounds_impl_(
+    where_clause: &mut syn::WhereClause,
+    model: &TypeModel,
+    needs_future_outlives: bool,
+) {
+    let allocator_params = crate::model_::allocator_params_(model);
+    for param in model.type_params_() {
+        if allocator_params.contains(&param) {
+            if needs_future_outlives {
+                where_clause.predicates.push(parse_quote!(#param: 'a));
+            }
+            continue;
+        }
+        where_clause.predicates.push(
+            parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de),
+        );
     }
 }
 

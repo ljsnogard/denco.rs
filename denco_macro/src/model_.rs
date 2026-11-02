@@ -3,7 +3,8 @@
 use zyn::{
     Span, format_ident,
     syn::{
-        self, Data, DeriveInput, Fields, GenericParam, Ident, Index, Member, Type, fold::Fold,
+        self, Data, DeriveInput, Fields, GenericParam, Ident, Index, Member, Type,
+        fold::{self, Fold},
         spanned::Spanned,
     },
 };
@@ -117,12 +118,150 @@ pub(crate) fn parse_(input: &DeriveInput) -> syn::Result<TypeModel> {
     Ok(TypeModel {
         ident_: input.ident.clone(),
         vis_: input.vis.clone(),
-        generics_: input.generics.clone(),
+        generics_: normalize_generics_(&input.generics),
         rename_: rename,
         transparent_: attrs.transparent,
         lifetime_bound_: false,
         kind_: kind,
     })
+}
+
+/// 把类型参数上的内联约束移到 `where` 子句，并去掉泛型默认值。
+///
+/// `gen_mcf2` 不接受泛型参数上的内联约束/默认值；派生宏会把用户泛型复制进
+/// 生成的 async fn，因此这里先统一规范化。
+fn normalize_generics_(generics: &syn::Generics) -> syn::Generics {
+    let mut out = generics.clone();
+    let mut moved: Vec<syn::WherePredicate> = Vec::new();
+    for param in out.params.iter_mut() {
+        match param {
+            GenericParam::Type(param) => {
+                if !param.bounds.is_empty() {
+                    let ident = param.ident.clone();
+                    let bounds = param.bounds.clone();
+                    moved.push(syn::parse_quote!(#ident: #bounds));
+                    param.bounds.clear();
+                }
+                param.default = None;
+            }
+            GenericParam::Const(param) => param.default = None,
+            GenericParam::Lifetime(_) => {}
+        }
+    }
+    if !moved.is_empty() {
+        out.make_where_clause().predicates.extend(moved);
+    }
+    out
+}
+
+/// 找出出现在「标准容器 allocator 位置」的类型参数。
+///
+/// 例如 `Vec<u32, A>` / `Arc<u32, A>` / `BTreeMap<K, V, A>` 里的 `A`。
+/// 这些参数是 allocator，不应该要求 `A: TrDecodable` / `A: TrEncodable`；
+/// 解码侧改为对包含它们的字段施加 `FieldTy: TrDecodable` 约束，让容器的
+/// `TrAllocSource` 要求自然传播。
+pub(crate) fn allocator_params_(model: &TypeModel) -> Vec<Ident> {
+    let params = model.type_params_();
+    if params.is_empty() {
+        return Vec::new();
+    }
+    let mut finder = AllocParamFinder_ {
+        params_: &params,
+        out_: Vec::new(),
+    };
+    for_each_field_ty_(model, |ty| {
+        let _ = finder.fold_type(ty.clone());
+    });
+    finder.out_
+}
+
+/// 判断类型里是否出现指定类型参数的**裸用法**（排除同名关联类型）。
+pub(crate) fn ty_mentions_ident_(ty: &Type, ident: &Ident) -> bool {
+    let mut finder = IdentFinder_ {
+        ident_: ident,
+        found_: false,
+    };
+    let _ = finder.fold_type(ty.clone());
+    finder.found_
+}
+
+fn for_each_field_ty_(model: &TypeModel, mut visit: impl FnMut(&Type)) {
+    match &model.kind_ {
+        Kind::Struct(fields) => walk_fields_(fields, &mut visit),
+        Kind::Enum(variants) => {
+            for variant in variants {
+                walk_fields_(&variant.fields_, &mut visit);
+            }
+        }
+    }
+}
+
+fn walk_fields_(fields: &FieldsModel, visit: &mut impl FnMut(&Type)) {
+    if let FieldsModel::Named(items) | FieldsModel::Unnamed(items) = fields {
+        for field in items {
+            visit(&field.ty_);
+        }
+    }
+}
+
+/// 标准容器的 allocator 参数下标；`None` 表示该路径不是已知容器。
+fn allocator_arg_index_(ident: &Ident) -> Option<usize> {
+    match ident.to_string().as_str() {
+        "Vec" | "VecDeque" | "LinkedList" | "BinaryHeap" | "Box" | "Arc" | "Rc" | "BTreeSet" => {
+            Some(1)
+        }
+        "BTreeMap" | "HashSet" => Some(2),
+        "HashMap" => Some(3),
+        _ => None,
+    }
+}
+
+struct AllocParamFinder_<'a> {
+    params_: &'a [Ident],
+    out_: Vec<Ident>,
+}
+
+impl Fold for AllocParamFinder_<'_> {
+    fn fold_type(&mut self, ty: Type) -> Type {
+        if let Type::Path(path) = &ty
+            && path.qself.is_none()
+            && let Some(segment) = path.path.segments.last()
+            && let Some(index) = allocator_arg_index_(&segment.ident)
+            && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+            && let Some(syn::GenericArgument::Type(Type::Path(inner))) = args.args.iter().nth(index)
+            && inner.qself.is_none()
+            && inner.path.segments.len() == 1
+            && inner.path.segments[0].arguments.is_empty()
+            && let Some(param) = self
+                .params_
+                .iter()
+                .find(|param| **param == inner.path.segments[0].ident)
+            && !self.out_.iter().any(|seen| seen == param)
+        {
+            self.out_.push(param.clone());
+        }
+        fold::fold_type(self, ty)
+    }
+}
+
+struct IdentFinder_<'a> {
+    ident_: &'a Ident,
+    found_: bool,
+}
+
+impl Fold for IdentFinder_<'_> {
+    fn fold_type(&mut self, ty: Type) -> Type {
+        if !self.found_
+            && let Type::Path(path) = &ty
+            && path.qself.is_none()
+            && path.path.segments.len() == 1
+            && path.path.segments[0].arguments.is_empty()
+            && path.path.segments[0].ident == *self.ident_
+        {
+            self.found_ = true;
+        }
+        fold::fold_type(self, ty)
+    }
 }
 
 /// 生成解码专用的模型：把所有用户生命周期参数绑定到 `'alloc`。
