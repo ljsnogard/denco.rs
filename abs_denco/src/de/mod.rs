@@ -7,8 +7,6 @@ mod access_;
 #[cfg(feature = "alloc-collections")]
 mod alloc_collections_;
 mod boxed_;
-#[cfg(feature = "bump")]
-mod bump_;
 mod collect_;
 #[cfg(feature = "cow")]
 mod cow_;
@@ -28,8 +26,6 @@ mod visitor_;
 
 pub use access_::{EnumAccess, MapAccess, SeqAccess, VariantAccess};
 pub use boxed_::BoxedMayCancel;
-#[cfg(feature = "bump")]
-pub use bump_::BumpAlloc;
 pub use decodable_::{TrDecodable, TrDecodableOwned, TrDecodableSeed};
 pub use decoder_::TrDecoder;
 pub use error_::{Error, Expected, Unexpected};

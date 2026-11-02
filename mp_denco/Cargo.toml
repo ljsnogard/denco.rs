@@ -16,7 +16,6 @@ anylr = { git = "https://gitee.com/lino_snsalias/anylr.rs.git", branch = "dev/0.
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 abs_denco = { path = "../abs_denco", features = [
     "alloc-collections",
-    "bump",
     "rc",
     "cow",
     "std",

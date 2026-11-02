@@ -24,14 +24,8 @@ cow = []
 # 并隐含 `alloc-collections`（与 serde 的 `std => alloc` 一致）。
 std = ["alloc-collections"]
 
-# 基于 bumpalo 的 `BumpAlloc`：一个 `Allocator + Default` 的 arena 分配器。
-# 容器实现的 `A: Allocator + Default` 约束可以直接用它，无需从 decoder 注入。
-bump = ["dep:atomic_sync", "dep:bumpalo"]
-
 [dependencies]
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
-atomic_sync = { git = "https://gitee.com/lino_snsalias/abs_sync.rs.git", optional = true }
-bumpalo = { version = "3.20.3", optional = true }
 gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 
 [package.metadata.docs.rs]
