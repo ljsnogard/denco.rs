@@ -221,30 +221,57 @@ impl<'de, 'alloc> TrDecodable<'de, 'alloc, ScopeArena> for Owning<'alloc, Foo> {
 把下面这段整段交给下一个会话：
 
 ```text
-你在 denco 仓库工作（/root/projects/me.noli/old-cantare/denco）。阶段 A、B1、
-Bumpalo arena（含 BumpBox/abs_mm 适配）与 json 泛型化均已完成。本轮目标是
-denco_sw_scope 或阶段 C（容器/嵌套与 Drop 语义）。
+你在 denco 仓库工作（/root/projects/me.noli/old-cantare/denco）。当前状态：
+abs_denco 的 TrArena / allocator 参数、MpDecoder / JsonDecoder 的 arena 泛型化、
+denco_bumpalo（BumpArena + BumpBox + abs_mm 适配）均已完成，测试/clippy 全绿；
+sw-scope 按团队决定暂缓。本轮目标是阶段 C，按 §15 的现状差距分三块推进。
 
 开始前按顺序读：
-1. dev-notes/2026-11-02-alloc-lifetime-refactor.md —— 总纲、§9~§14 的实施记录与
-   剩余清单。
+1. dev-notes/2026-11-02-alloc-lifetime-refactor.md —— 总纲与 §9~§15 的实施记录/现状核对。
 2. dev-notes/2026-11-02-bump-alloc.md —— 单生命周期下的失败记录，避免重复踩坑。
 3. dev-notes/2026-10-18-gat-and-messagepack.md —— TrDecoder/TrDecodable 的 GAT 基线。
 4. dev-notes/2026-10-18-derive-macros.md —— derive 生成代码的泛型/约束命名规则。
 
+目标 A：容器借用 decoder 的 arena（§15.2）
+- 现状：Vec<T,A>/Box<T,A> 等要求 A: Allocator + Default，BumpArena 会为每个容器
+  各自 Default 出一个独立 arena，并没有使用 decoder 传入的 &BumpArena；
+  bumpalo 的 Allocator 只对 &Bump 实现且需要 allocator_api/allocator-api2 feature，
+  对 &mut Bump 没有实现，且 &Bump 不是 Default。
+- 目标：容器的 allocator 由 TrDecoder::allocator() 提供（例如 Vec<T, &'alloc A>，
+  或经 TrArena 的容器 allocator 投影），使容器与引用版结果共享同一个 arena。
+- 先确认 allocator 投影的 trait 形状，再改 impls_ / collect_ / alloc_collections_ /
+  std_collections_；不要用 Default 作为共享 arena 的实现方式。
+
+目标 B：带生命周期的类型（§15.3）
+- 在 abs_denco 新增一个 trait（建议名 TrStrFromUtf8），用于「用 decoder 的 arena
+  从 UTF-8 构造任意类似 std String 的类型」；String、BumpString、&'alloc str、
+  Cow 等都可以实现，反序列化路径只依赖该 trait。
+- 先定 trait 形状再实现，至少确认：
+  1. 同步还是异步（sw-scope 的 put 是异步；若希望未来支持 ScopeStr，建议返回
+     TrMayCancel future，bump 用 ready）；
+  2. 整段 bytes 一次构造，还是 new_in + push_str 增量构造（长字符串流式读取）；
+  3. UTF-8 校验由谁负责（decoder 已校验 vs trait 再校验）；
+  4. 错误类型（A::Error 还是自定义，decoder 映射为 D::Error::custom）。
+- 衔接方式也需确认：`impl<S: TrStrFromUtf8> TrDecodable for S` 这类 blanket impl
+  容易与 derive/其它 impl 冲突；可考虑让 visitor 携带目标字符串类型，或新增
+  decode_string_as 之类的显式入口。
+- derive 允许生命周期参数，并把用户类型的生命周期绑定到 'alloc；
+- 实现 &'alloc str / &'alloc [u8] 的 TrDecodable（或经由 TrStrFromUtf8/字节 trait）；
+- 验收：Foo<'alloc> { name: &'alloc str, data: &'alloc [u8] } 在 MessagePack 与
+  JSON 上解码为 BumpBox<'alloc, Foo<'alloc>>。
+
+目标 C：保持既有接口
+- 不要回退 §9~§15 的 TrArena / allocator 参数 / BumpBox / abs_mm 适配；
+- sw-scope 继续暂缓（日后用 ScopeArena + ScopeOwning + 稳定地址 Retain 保活表）。
+
 工作方法：
 - 先 git status；有未提交改动先报告，不要覆盖。
-- 现状：TrArena（异步 GAT）、allocator 参数、MpDecoder/JsonDecoder 泛型化、
-  denco_bumpalo（BumpArena + BumpBox）、abs_mm 适配均已就绪，测试/clippy 全绿。
-- denco_sw_scope（若本轮做）：ScopeArena<'alloc> 持有 &'alloc Scope + 稳定地址的
-  异构 Retain 保活表（Vec<Box<dyn RetainHolder + 'alloc>>）；用本地 newtype
-  ScopeOwning<'alloc,T> 包装 Owning（孤儿规则），Ref<T> = ScopeOwning；
-  alloc_value_async 基于 Scope::put_async，错误类型包装 ScopeError；适配
-  abs_mm::TrBoxed/TrUnique。
-- 阶段 C：Vec<Foo> / Option<Foo> 等容器元素共享同一 arena；补 Drop 语义测试
-  （bump 的 BumpBox drop 会析构 T，sw-scope 的 Retain/close）。
-- 引用版只做「值版解码 + alloc_value_async」的薄包装，不要改 decode_* 读取逻辑。
-- 每阶段结束跑 cargo test/clippy --workspace --all-features；用 .tmp 放临时验证。
+- 公开 API 变更先说明理由并等待确认；先写设计结论到 dev-notes，再改代码。
+- 顺序：abs_denco → denco_bumpalo → mp_denco → json_denco → denco_macro，
+  每步 cargo check。
+- 结束跑 cargo test/clippy --workspace --all-features；用 .tmp 放临时验证。
+- 依赖现状：denco/Cargo.toml 有 mm_ptr/abs_mm 的本地 patch（离线开发用），
+  上游同步后移除。
 ```
 
 ## 9. 阶段 A 实施记录（2026-11-02）
