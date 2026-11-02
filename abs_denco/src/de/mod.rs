@@ -34,7 +34,7 @@ pub use arena_::{NoArena, TrArena, TrArenaBytes};
 pub use boxed_::BoxedMayCancel;
 pub use decodable_::{TrDecodable, TrDecodableOwned, TrDecodableSeed};
 pub use decoder_::TrDecoder;
-pub use error_::{Error, Expected, Unexpected};
+pub use error_::{Error, Expected, Unexpected, expected};
 pub use ext_::{EnumAccessExt, MapAccessExt, SeqAccessExt, VariantAccessExt};
 pub use ignored_any_::IgnoredAny;
 pub use str_::TrStrFromUtf8;

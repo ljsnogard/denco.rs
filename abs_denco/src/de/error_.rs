@@ -186,39 +186,140 @@ impl fmt::Display for Unexpected<'_> {
 
 /// 描述「调用者期望收到什么」的抽象。
 ///
-/// 它通常由 [`Visitor`] 自身实现：`&visitor` 可以直接作为
-/// [`Error::invalid_type`] 的 `exp` 参数。
+/// # 与 serde 的差异（手写 visitor 必读）
+///
+/// serde 的 `Visitor<'de>` 只有生命周期参数，所以 serde 能提供
+/// `impl<V: Visitor<'de>> Expected for V`：手写 visitor 里把 `&self` 传给
+/// [`Error::invalid_type`] / [`Error::invalid_value`] / [`Error::invalid_length`]
+/// 就会自动转成 `&dyn Expected`。
+///
+/// denco 的 [`Visitor<'de, 'alloc, Alloc>`] 多了一个 `Alloc` 类型参数。同样的
+/// blanket impl 会让 `Alloc` 只出现在 where 谓词里，触发 **E0207**（类型参数
+/// 未被约束），Rust 不允许，因此不能复刻 serde 的写法。手写 visitor 需要显式
+/// 适配，提供两个入口：[`Visitor::expected`] 与自由函数 [`expected`]。
+///
+/// 两者都返回只借用 visitor 的轻量视图，不分配内存。但 visitor 类型通常不携带
+/// `Alloc`，所以**调用点必须能确定 `'de / 'alloc / Alloc`**：
+///
+/// - 在泛型 helper 里（`V: Visitor<'de, 'alloc, Alloc>` 就在作用域内）：
+///   `&v.expected()` 与 `&expected(&v)` 都能自动推断；
+/// - 在 visitor impl 的 `visit_*` 方法体内：`self.expected()` 会因参数推断歧义
+///   报 E0282；请用自由函数并显式写出 allocator 参数
+///   `&expected::<Alloc, _>(&self)`（把 `Alloc` 换成 impl 里的参数名），
+///   或全限定 `<Self as Visitor<'de, 'alloc, Alloc>>::expected(&self)`；
+/// - 描述是固定字符串时，直接 `&"a string"` 最简单（[`Expected`] 对 `&str`
+///   有实现）。
+///
+/// # Examples
+///
+/// ```
+/// use abs_denco::de::{Expected, TrArena, Visitor, expected};
+///
+/// struct MyVisitor;
+///
+/// impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+///     for MyVisitor
+/// {
+///     type Value = ();
+///
+///     fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+///         f.write_str("a number")
+///     }
+/// }
+///
+/// fn takes(_: &dyn Expected) {}
+///
+/// fn demo<'de, 'alloc, Alloc, V>(v: &V)
+/// where
+///     V: Visitor<'de, 'alloc, Alloc>,
+///     Alloc: TrArena<'alloc> + 'alloc,
+/// {
+///     // 方法版
+///     takes(&v.expected());
+///     // 自由函数版
+///     takes(&expected(v));
+/// }
+/// ```
 pub trait Expected {
     /// 把「期望什么」写入 `formatter`。
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-/// 把 [`Visitor`] 适配成 [`Expected`]。
+/// 把一个 [`Visitor`] 适配成可传给 [`Error::invalid_type`] 等方法的 [`Expected`]。
 ///
-/// `Expected` 本身不带 allocator 参数；如果直接写
-/// `impl<T: Visitor<...>> Expected for T`，`Alloc` 会成为未约束类型参数
-/// （E0207）。这里让适配器携带 `Alloc`，把参数约束在 self 类型上。
-pub(crate) struct VisitorExpected<'a, V, Alloc> {
-    visitor_: &'a V,
-    marker_: core::marker::PhantomData<Alloc>,
+/// 这是 [`Visitor::expected`] 的自由函数版本。两者功能相同；自由函数的好处是
+/// 可以用 turbofish 显式钉住 `Alloc`：
+///
+/// - 在泛型 helper 里（`V: Visitor<'de, 'alloc, Alloc>` 在作用域内）：
+///   `&expected(&v)` 即可；
+/// - 在 visitor impl 的 `visit_*` 方法体内（visitor 类型通常不携带 `Alloc`）：
+///   写 `&expected::<Alloc, _>(&self)`，把 `Alloc` 换成 impl 的参数名；
+/// - 描述是固定字符串时，直接 `&"a string"` 也可以。
+///
+/// 为什么需要显式适配（而不是 serde 那样直接 `&self`），见 [`Expected`] 的
+/// 「与 serde 的差异」一节。
+///
+/// # Examples
+///
+/// ```
+/// use abs_denco::de::{Expected, TrArena, Visitor, expected};
+///
+/// struct MyVisitor;
+///
+/// impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+///     for MyVisitor
+/// {
+///     type Value = ();
+///
+///     fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+///         f.write_str("a number")
+///     }
+/// }
+///
+/// fn takes(_: &dyn Expected) {}
+///
+/// fn demo<'de, 'alloc, Alloc, V>(v: &V)
+/// where
+///     V: Visitor<'de, 'alloc, Alloc>,
+///     Alloc: TrArena<'alloc> + 'alloc,
+/// {
+///     takes(&expected(v));
+/// }
+/// ```
+pub fn expected<'a, 'de, 'alloc, Alloc, V>(visitor: &'a V) -> impl Expected + 'a
+where
+    V: Visitor<'de, 'alloc, Alloc> + 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+{
+    let format: fn(&V, &mut fmt::Formatter<'_>) -> fmt::Result = |v, f| v.expecting(f);
+    VisitorExpected::new_(visitor, format)
 }
 
-impl<'a, V, Alloc> VisitorExpected<'a, V, Alloc> {
-    pub(crate) fn new_(visitor: &'a V) -> Self {
+/// [`Visitor`] 的 [`Expected`] 适配器。
+///
+/// 它**不携带 `Alloc`**：`Expected` 的 impl 只依赖 `V`，因此不会出现 E0207；
+/// 「如何格式化」在构造时以函数指针保存，避免把 `Alloc` 带入适配器类型，也避免
+/// 额外的生命周期约束（否则 `Alloc` 可能需要 `'a`）。
+pub(crate) struct VisitorExpected<'a, V: ?Sized> {
+    visitor_: &'a V,
+    format_: fn(&V, &mut fmt::Formatter<'_>) -> fmt::Result,
+}
+
+impl<'a, V: ?Sized> VisitorExpected<'a, V> {
+    pub(crate) fn new_(
+        visitor: &'a V,
+        format: fn(&V, &mut fmt::Formatter<'_>) -> fmt::Result,
+    ) -> Self {
         Self {
             visitor_: visitor,
-            marker_: core::marker::PhantomData,
+            format_: format,
         }
     }
 }
 
-impl<'de, 'alloc, Alloc, V> Expected for VisitorExpected<'_, V, Alloc>
-where
-    Alloc: TrArena<'alloc> + 'alloc,
-    V: Visitor<'de, 'alloc, Alloc>,
-{
+impl<V: ?Sized> Expected for VisitorExpected<'_, V> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.visitor_.expecting(formatter)
+        (self.format_)(self.visitor_, formatter)
     }
 }
 

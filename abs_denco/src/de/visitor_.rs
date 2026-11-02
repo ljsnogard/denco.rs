@@ -7,10 +7,7 @@ use alloc::{string::String, vec::Vec};
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use gen_mcf2::gen_may_cancel_future;
 
-use super::{
-    EnumAccess, Error, MapAccess, SeqAccess, TrArena, TrDecoder, Unexpected,
-    error_::VisitorExpected,
-};
+use super::{EnumAccess, Error, Expected, MapAccess, SeqAccess, TrArena, TrDecoder, Unexpected};
 
 #[gen_may_cancel_future(VisitString)]
 async fn visit_string_async<'de, 'alloc, 'a, Alloc, V, E, C>(
@@ -90,6 +87,54 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 描述本访问者期望接收什么。
     fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result;
 
+    /// 返回一个可传给 [`Error::invalid_type`] 等方法的 [`Expected`] 视图。
+    ///
+    /// serde 用户请注意：serde 的 `Visitor` 只有 `'de`，因此 serde 能提供
+    /// `impl<V: Visitor<'de>> Expected for V`，手写 visitor 里直接写 `&self`
+    /// 就能当 `&dyn Expected`。denco 的 `Visitor<'de, 'alloc, Alloc>` 多了
+    /// `Alloc` 类型参数，同样的 blanket impl 会触发 **E0207**（类型参数未被
+    /// 约束），所以必须显式适配。
+    ///
+    /// 本方法适合**参数已确定**的泛型 helper（`V: Visitor<'de, 'alloc, Alloc>`
+    /// 在作用域内）。visitor impl 的 `visit_*` 方法体里，`self` 的类型通常不
+    /// 携带 `Alloc`，此时 `self.expected()` 会因参数推断歧义报 E0282；请改用
+    /// 自由函数 `&expected::<Alloc, _>(&self)`（把 `Alloc` 换成 impl 的参数名）
+    /// 或全限定 `<Self as Visitor<'de, 'alloc, Alloc>>::expected(self)`，也可以
+    /// 直接传静态描述字符串。详见 [`Expected`] 文档。
+    ///
+    /// ```
+    /// use abs_denco::de::{Error, Expected, TrArena, Unexpected, Visitor, expected};
+    ///
+    /// struct MyVisitor;
+    ///
+    /// impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+    ///     for MyVisitor
+    /// {
+    ///     type Value = ();
+    ///
+    ///     fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    ///         f.write_str("a number")
+    ///     }
+    /// }
+    ///
+    /// fn takes(_: &dyn Expected) {}
+    ///
+    /// fn demo<'de, 'alloc, Alloc, V>(v: &V)
+    /// where
+    ///     V: Visitor<'de, 'alloc, Alloc>,
+    ///     Alloc: TrArena<'alloc> + 'alloc,
+    /// {
+    ///     // 泛型 helper 中两种写法都能推断
+    ///     takes(&v.expected());
+    ///     takes(&expected(v));
+    /// }
+    /// ```
+    fn expected(&self) -> impl Expected + '_ {
+        let format: fn(&Self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result =
+            |v, f| v.expecting(f);
+        super::error_::VisitorExpected::new_(self, format)
+    }
+
     /// 输入包含一个 `bool`。
     ///
     /// # Errors
@@ -107,7 +152,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Bool(v),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -167,7 +212,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Signed(v),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -188,7 +233,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Other("i128"),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -248,7 +293,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Unsigned(v),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -269,7 +314,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Other("u128"),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -303,7 +348,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Float(v),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -343,7 +388,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Str(v),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -398,7 +443,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Bytes(v),
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -449,7 +494,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     {
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Option,
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -473,7 +518,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = deserializer;
         future::ready(Err(<D::Error as Error>::invalid_type(
             Unexpected::Option,
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -490,7 +535,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     {
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Unit,
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -514,7 +559,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = deserializer;
         future::ready(Err(<D::Error as Error>::invalid_type(
             Unexpected::NewtypeStruct,
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -538,7 +583,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = seq;
         future::ready(Err(<A::Error as Error>::invalid_type(
             Unexpected::Seq,
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -562,7 +607,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = map;
         future::ready(Err(<A::Error as Error>::invalid_type(
             Unexpected::Map,
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -586,7 +631,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         let _ = data;
         future::ready(Err(<A::Error as Error>::invalid_type(
             Unexpected::Enum,
-            &VisitorExpected::<'_, _, Alloc>::new_(&self),
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 }

@@ -9,7 +9,7 @@ use abs_cancel::{TrCancellationToken, TrMayCancel};
 
 use super::{
     Error, SeqAccess, TrAllocSource, TrArena, TrDecodable, TrDecoder, Unexpected, Visitor,
-    collect_::SeqCollectVisitor, error_::VisitorExpected,
+    collect_::SeqCollectVisitor,
 };
 
 macro_rules! impl_decode_unsigned_ {
@@ -38,7 +38,7 @@ macro_rules! impl_decode_unsigned_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Unsigned(value),
-                        &VisitorExpected::<'_, _, Alloc>::new_(&self),
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -57,7 +57,7 @@ macro_rules! impl_decode_unsigned_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Other("u128"),
-                        &VisitorExpected::<'_, _, Alloc>::new_(&self),
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -127,7 +127,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Signed(value),
-                        &VisitorExpected::<'_, _, Alloc>::new_(&self),
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -146,7 +146,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Unsigned(value),
-                        &VisitorExpected::<'_, _, Alloc>::new_(&self),
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -165,7 +165,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Other("i128"),
-                        &VisitorExpected::<'_, _, Alloc>::new_(&self),
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -184,7 +184,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Other("u128"),
-                        &VisitorExpected::<'_, _, Alloc>::new_(&self),
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -496,7 +496,7 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
             (Some(ch), None) => Ok(ch),
             _ => Err(<E as Error>::invalid_value(
                 Unexpected::Str(value),
-                &VisitorExpected::<'_, _, Alloc>::new_(&self),
+                &super::error_::expected::<Alloc, _>(&self),
             )),
         };
         future::ready(result)

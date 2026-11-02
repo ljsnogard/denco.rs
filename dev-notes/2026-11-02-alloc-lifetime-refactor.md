@@ -15,7 +15,8 @@ B1 方向已确认；`TrArena` 的异步化与「就地构造」取舍见 §11�
 
 **进展（2026-11-03）**：阶段 C 的两项 API 决策（容器 allocator 投影、字符串
 构造 trait 的衔接方式）已定稿并写入 §16，实施记录见 §17；目标 A/B 完成，
-自定义 allocator 字段与 allocator 泛型参数的 derive 支持见 §18；sw-scope 继续暂缓。
+自定义 allocator 字段与 allocator 泛型参数的 derive 支持见 §18；手写 visitor 的
+`Expected` 适配入口见 §19；sw-scope 继续暂缓。
 
 ## 1. 背景与问题
 
@@ -1336,3 +1337,70 @@ allocator 的实现只需要提供 `TrAllocSource`；泛型参数由 derive 自�
 - `cargo test --workspace --all-features`：28 个测试块全绿（含
   `foreign_alloc_` 5 个新用例）；
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings`：通过。
+
+## 19. `Expected` 适配入口回补（2026-11-03）
+
+**结论**：新增 `Visitor::expected()` 与自由函数 `de::expected()`，用于把 visitor
+适配成 `Error::invalid_type` 等方法的 `Expected` 参数。两者都已验证，但**不能**
+完全恢复 serde 的 `&self` 写法：visitor impl 的 `visit_*` 方法体里仍需显式写出
+`Alloc`（或用静态字符串）。这是当前 `Visitor` 泛型形状的固有限制，记录在 §19.3。
+
+### 19.1 问题：serde 的 `&self` 为什么失效
+
+serde 的 `Visitor<'de>` 只有生命周期参数，serde 可以提供：
+
+```rust
+impl<'de, V> Expected for V where V: Visitor<'de> { ... }
+```
+
+手写 visitor 因此能写 `Error::invalid_type(unexp, &self)`。denco 的
+`Visitor<'de, 'alloc, Alloc>` 多了 `Alloc` 类型参数；同样写 blanket impl 时
+`Alloc` 只出现在 where 谓词里，触发 **E0207**（类型参数未被约束）。只加
+`'alloc` 没问题（最小探针验证过），**`Alloc` 是致命的那一个**。
+
+### 19.2 实现
+
+- `VisitorExpected<'a, V>` 改为「`&V` + `fn(&V, &mut Formatter) -> fmt::Result`」，
+  不再携带 `Alloc`。因此 `impl<V: ?Sized> Expected for VisitorExpected<'_, V>`
+  只依赖 `V`，不会 E0207，也不会引入 `Alloc: 'a` 的生命周期约束；
+- [`Visitor::expected`]：trait 默认方法，构造上述适配器；
+- [`de::expected`]：自由函数版，签名为
+  `fn expected<'a, 'de, 'alloc, Alloc, V>(&'a V) -> impl Expected + 'a`；
+- 内部默认实现与 `impls_` 的数值 visitor 统一改用
+  `&expected::<Alloc, _>(&self)`，避免参数推断歧义。
+
+### 19.3 使用位置与限制（重要）
+
+适配器本身不依赖 `Alloc`，但**调用点必须能确定 `Visitor` 的实现参数**：
+
+| 调用位置 | 推荐写法 |
+| --- | --- |
+| 泛型 helper（`V: Visitor<'de, 'alloc, Alloc>` 在作用域内） | `&v.expected()` 或 `&expected(&v)` |
+| visitor impl 的 `visit_*` 方法体（`Self` 不携带 `Alloc`） | `&expected::<Alloc, _>(&self)`（`Alloc` 换成 impl 的参数名）或全限定 `<Self as Visitor<'de, 'alloc, Alloc>>::expected(self)` |
+| 固定描述 | `&"a string"`（`Expected` 对 `&str` 有实现） |
+
+在 impl 内直接写 `self.expected()` / `expected(&self)` 会报 E0282：方法解析/类型
+推断无法从 `Self` 反推出 `Alloc`（与 `expecting` 本身的调用是同一类问题）。这正是
+serde 用户最容易踩的坑，文档已在 `Expected`、`Visitor::expected`、`de::expected`
+三处说明。
+
+### 19.4 为什么不做更彻底的修复
+
+彻底方案是把 `expecting` 从 `Visitor` 移到**不携带 `Alloc` 的 supertrait**
+（例如 `TrExpecting`），这样 `impl<V: TrExpecting> Expected for V` 合法，`&self`
+就能恢复。代价是每个 `Visitor` 实现（含 derive 生成代码、下游手写 visitor）都要
+多一个 impl 块，属于破坏性较大的 trait 拆分；本轮没有采用。若以后决定做，会单独
+记录并迁移。
+
+### 19.5 验证
+
+- 新增 `abs_denco/tests/expected_.rs`：覆盖自由函数、方法版、impl 内 turbofish、
+  以及 `Error::invalid_type` 的实际错误文本；
+- `cargo test --workspace --all-features`：29 个测试块全绿；
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`：通过；
+- `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`：通过。
+
+### 19.6 下游
+
+`mptp_smux` 目前用静态字符串绕过；等本提交推送后，可改为
+`&expected::<Alloc, _>(&self)`（其 `num_or_str_.rs` 的两个 `visit_*` 方法体）。
