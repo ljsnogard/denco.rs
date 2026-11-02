@@ -17,3 +17,11 @@ license = "AGPL-3.0-or-later"
 # [patch."https://gitee.com/lino_snsalias/cancel_rs.git"]
 # abs_cancel = { path = "../cancel_rs/abs_cancel-rs" }
 # gen_mcf2 = { path = "../cancel_rs/gen_mcf2" }
+
+# 本地开发期 patch：`mm_ptr` 的 git 分支最新提交尚未同步到远端，
+# 这里固定到同级检出，保证其与 `abs_mm` dev/0.3.0 的新 `TrBoxed` 一致。
+[patch."https://gitee.com/lino_snsalias/mm_ptr.git"]
+mm_ptr = { path = "../mm_ptr" }
+
+[patch."https://gitee.com/lino_snsalias/abs_mm.git"]
+abs_mm = { path = "../abs_mm" }

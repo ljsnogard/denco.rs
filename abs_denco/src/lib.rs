@@ -68,3 +68,11 @@ pub mod ser;
 
 pub use de::{TrDecodable, TrDecoder};
 pub use ser::{TrEncodable, TrEncoder};
+
+/// arena 句柄的智能指针语义，转发自 [`abs_mm`]。
+///
+/// [`TrArena::Ref<T>`](de::TrArena::Ref) 的实现方（例如
+/// `denco_bumpalo::BumpBox`）应当同时实现 [`TrBoxed`] / [`TrUnique`]，
+/// 这样通用代码可以把解码结果当作普通智能指针使用。`abs_denco` 本身不强制
+/// 这个约束，因为 [`NoArena`](de::NoArena) 的 `Ref<T>` 就是 `T`。
+pub use abs_mm::res_man::{TrBoxed, TrUnique};

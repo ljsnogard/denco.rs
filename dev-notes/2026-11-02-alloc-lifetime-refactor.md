@@ -205,12 +205,15 @@ impl<'de, 'alloc> TrDecodable<'de, 'alloc, ScopeArena> for Owning<'alloc, Foo> {
 - `mp_denco`：`MpDecoder<'r, 'alloc, R, A = NoArena>` 已对 arena 泛型化，
   access 链携带 `&'alloc A`；`BumpAlloc` / `BumpString` 已迁出到 `denco_bumpalo`，
   `bump` feature 与 bumpalo 依赖已删除；
-- `denco_bumpalo`：新增 workspace crate，`BumpAlloc` 同时实现
-  `core::alloc::Allocator` 与 `TrArena`（`Ref<T> = &'alloc mut T`），
-  引用版解码已端到端验证；
-- `json_denco` 仍固定 `NoArena`，尚未泛型化；
-- `&'alloc mut T` 的引用版已由 `abs_denco` 的 blanket impl 提供；
-  `Owning<'alloc, T>` 版本随 `denco_sw_scope` 暂缓；
+- `denco_bumpalo`：新增 workspace crate，`BumpArena` 同时实现
+  `core::alloc::Allocator` 与 `TrArena`；`Ref<T> = BumpBox<'alloc, T>`
+  （bumpalo 特化 Box，适配 `abs_mm::TrBoxed` / `TrUnique`），引用版解码已在
+  MessagePack 与 JSON 上端到端验证；
+- `json_denco`：`JsonDecoder<'r, 'alloc, R, A = NoArena>` 已泛型化，
+  `&mut JsonDecoder` 的 `TrDecoder` 实现携带 `&'alloc A`；
+- `BumpBox<'alloc, T>` 的引用版由 `denco_bumpalo` 实现；`abs_denco` 仍保留
+  `&'alloc mut T` 的 blanket impl 供裸引用形态使用；`Owning<'alloc, T>` 版本
+  随 `denco_sw_scope` 暂缓；
 - 上一轮单生命周期下的失败记录见 `2026-11-02-bump-alloc.md`。
 
 ## 8. 下一会话提示词
@@ -218,28 +221,28 @@ impl<'de, 'alloc> TrDecodable<'de, 'alloc, ScopeArena> for Owning<'alloc, Foo> {
 把下面这段整段交给下一个会话：
 
 ```text
-你在 denco 仓库工作（/root/projects/me.noli/old-cantare/denco）。阶段 A、B1 与
-Bumpalo arena 接入已完成，本轮目标是：json_denco 泛型化，或（如果优先级更高）
-denco_sw_scope。
+你在 denco 仓库工作（/root/projects/me.noli/old-cantare/denco）。阶段 A、B1、
+Bumpalo arena（含 BumpBox/abs_mm 适配）与 json 泛型化均已完成。本轮目标是
+denco_sw_scope 或阶段 C（容器/嵌套与 Drop 语义）。
 
 开始前按顺序读：
-1. dev-notes/2026-11-02-alloc-lifetime-refactor.md —— 总纲、§9 阶段 A、§10 B1/B2、
-   §11 TrArena API 取舍、§12 B1 实施记录、§13 denco_bumpalo 接入记录。
+1. dev-notes/2026-11-02-alloc-lifetime-refactor.md —— 总纲、§9~§14 的实施记录与
+   剩余清单。
 2. dev-notes/2026-11-02-bump-alloc.md —— 单生命周期下的失败记录，避免重复踩坑。
 3. dev-notes/2026-10-18-gat-and-messagepack.md —— TrDecoder/TrDecodable 的 GAT 基线。
 4. dev-notes/2026-10-18-derive-macros.md —— derive 生成代码的泛型/约束命名规则。
 
 工作方法：
 - 先 git status；有未提交改动先报告，不要覆盖。
-- 现状：TrArena（异步 GAT）、allocator 参数、&'alloc mut T blanket impl、
-  denco_bumpalo、MpDecoder<'r,'alloc,R,A=NoArena> 均已就绪，全部测试/clippy 通过；
-  JsonDecoder 仍固定 NoArena。
-- json_denco：按 mp_denco 的方式让 JsonDecoder / JsonNameDecoder / access 携带
-  &'alloc A，保留 JsonDecoder 名字与默认 A = NoArena；不要改读取逻辑。
+- 现状：TrArena（异步 GAT）、allocator 参数、MpDecoder/JsonDecoder 泛型化、
+  denco_bumpalo（BumpArena + BumpBox）、abs_mm 适配均已就绪，测试/clippy 全绿。
 - denco_sw_scope（若本轮做）：ScopeArena<'alloc> 持有 &'alloc Scope + 稳定地址的
   异构 Retain 保活表（Vec<Box<dyn RetainHolder + 'alloc>>）；用本地 newtype
   ScopeOwning<'alloc,T> 包装 Owning（孤儿规则），Ref<T> = ScopeOwning；
-  alloc_value_async 基于 Scope::put_async，错误类型包装 ScopeError。
+  alloc_value_async 基于 Scope::put_async，错误类型包装 ScopeError；适配
+  abs_mm::TrBoxed/TrUnique。
+- 阶段 C：Vec<Foo> / Option<Foo> 等容器元素共享同一 arena；补 Drop 语义测试
+  （bump 的 BumpBox drop 会析构 T，sw-scope 的 Retain/close）。
 - 引用版只做「值版解码 + alloc_value_async」的薄包装，不要改 decode_* 读取逻辑。
 - 每阶段结束跑 cargo test/clippy --workspace --all-features；用 .tmp 放临时验证。
 ```
@@ -659,34 +662,23 @@ crate 内写 `impl TrDecodable<..., ScopeArena> for Owning<'alloc, T>`
 
 ### 13.3 新 crate：`denco_bumpalo`
 
-- `BumpAlloc` / `BumpString` 从 `mp_denco` 迁出；`mp_denco` 删除 `bump`
-  feature 与 `bumpalo` / `atomic_sync` 依赖；
-- `BumpAlloc` 同时实现 `core::alloc::Allocator`（容器用）与
-  [`TrArena`](../abs_denco/src/de/arena_.rs)（引用版解码用）：
-
-  ```rust
-  impl<'alloc> TrArena<'alloc> for BumpAlloc {
-      type Error = BumpArenaError;
-      type Ref<T: 'alloc> = &'alloc mut T;
-      // AllocValueAsync = future::Ready<...>；用 try_alloc_layout/allocate + ptr::write
-  }
-  ```
-
-- 引用版 `TrDecodable` **不需要在 denco_bumpalo 里写任何代码**：
-  `abs_denco` 的 blanket impl 已经覆盖
-  `A::Ref<T> = &'alloc mut T` 的所有 arena；
+- `BumpAlloc`（后改名 `BumpArena`）/ `BumpString` 从 `mp_denco` 迁出；
+  `mp_denco` 删除 `bump` feature 与 `bumpalo` / `atomic_sync` 依赖；
+- `BumpArena` 同时实现 `core::alloc::Allocator`（容器用）与
+  [`TrArena`](../abs_denco/src/de/arena_.rs)（引用版解码用）；
+- `TrArena::Ref<T>` 最初是 `&'alloc mut T`，后来按团队建议改为 bumpalo 特化
+  Box：[`BumpBox<'alloc, T>`](../denco_bumpalo/src/lib.rs)（见 §14）；
 - bumpalo 的 `AllocErr` 未实现 `core::error::Error`，新增薄适配
   `BumpArenaError`；
-- `denco_bumpalo` 不依赖 `mp_denco`（只有 dev-dependencies 用于集成测试），
-  格式 crate 也不依赖 `denco_bumpalo`，两侧完全解耦。
+- `denco_bumpalo` 不依赖 `mp_denco` / `json_denco`（只有 dev-dependencies
+  用于集成测试），格式 crate 也不依赖 `denco_bumpalo`，两侧完全解耦。
 
-### 13.4 `abs_mm` 的评估
+### 13.4 `abs_mm` 的评估（已被 §14 取代）
 
-`abs_mm` 的 `TrBoxed` 要求 `Deref` + 一个 `core::alloc::Allocator` 句柄
-（`try_get_mem_alloc`），`TrUnique` 是其子 trait。`&'alloc mut T` 与 sw-scope 的
-`Owning` 都不携带 `core::alloc::Allocator`，因此**当前不适用**，没有引入
-`abs_mm`。若以后需要统一的「arena 句柄」抽象，建议在 `abs_denco` 侧定义一个只
-要求 `Deref`/`DerefMut` 的轻量 marker，而不是复用 `TrBoxed`。
+`abs_mm` dev/0.3.0 之前的 `TrBoxed` 要求 `Deref` + 一个
+`core::alloc::Allocator` 句柄（`try_get_mem_alloc`），而 `&'alloc mut T` 与
+sw-scope 的 `Owning` 都不携带 `core::alloc::Allocator`，当时判断不适用。
+dev/0.3.0 更新后 `TrBoxed` 只剩 `Deref`，适配方案见 §14。
 
 ### 13.5 sw-scope 暂缓
 
@@ -709,8 +701,152 @@ crate 内写 `impl TrDecodable<..., ScopeArena> for Owning<'alloc, T>`
   - `MpDecoder::new_in(&mut input, &bump)` 把 `Point` 解码为 `&'alloc mut Point`，
     并断言 `bump.allocated_bytes() > 0`。
 
-### 13.7 剩余
+### 13.7 剩余（json 已在 §14 完成）
 
-1. `json_denco` 泛型化（同样携带 `&'alloc A`，保留 `JsonDecoder` 名字）；
+1. `json_denco` 泛型化 —— 已在 §14 完成；
 2. `denco_sw_scope`；
 3. 阶段 C：容器/嵌套与 Drop 语义验证。
+
+## 14. abs_mm 适配、BumpBox 与 json 泛型化（2026-11-03 凌晨）
+
+**结论**：`abs_mm` dev/0.3.0 的 `TrBoxed` 已去掉 allocator GAT，只要求
+`Deref` + `Item`；据此把 Bump arena 的 `Ref<T>` 改成 bumpalo 特化 Box
+（`BumpBox`），并适配 `TrBoxed` / `TrUnique`。`json_denco` 也完成了 allocator
+泛型化，BumpArena 的引用版解码同时支持 MessagePack 与 JSON。
+
+### 14.1 abs_mm dev/0.3.0 的变化
+
+```rust
+pub trait TrBoxed: Deref {
+    type Item: ?Sized;
+}
+pub trait TrUnique: TrBoxed + DerefMut<Target = Self::Item> {}
+```
+
+不再有 `Alloc` 关联类型或 `try_get_mem_alloc`，因此 arena 句柄只要能
+`Deref`/`DerefMut` 就能适配。`Owning` 这类类型（sw-scope）也可以按同样方式
+适配，但按团队决定随 `denco_sw_scope` 暂缓。
+
+### 14.2 `BumpAlloc` → `BumpArena`，`Ref<T>` 改为 `BumpBox`
+
+- 类型改名 `BumpAlloc` → `BumpArena`（crate 名仍是 `denco_bumpalo`）；
+- 新增 [`BumpBox<'alloc, T>`](../denco_bumpalo/src/lib.rs)：包装
+  `bumpalo::boxed::Box`，实现 `Deref` / `DerefMut`，并实现
+  `abs_mm::res_man::TrBoxed` / `TrUnique`；
+- `abs_denco` 统一 re-export `abs_mm::res_man::{TrBoxed, TrUnique}`
+  （`abs_denco/Cargo.toml` 因此依赖 `abs_mm`），`denco_bumpalo` 只从
+  `abs_denco` 取这两个 trait，不再直接依赖 `abs_mm`；
+- `TrArena for BumpArena` 的 `Ref<T>` 从 `&'alloc mut T` 改为
+  `BumpBox<'alloc, T>`；`alloc_value_async` 用 `Allocator::allocate` 划块、
+  `ptr::write` 写入后以 `BumpaloBox::from_raw` 接管：
+  - 内存仍由 arena 整体释放；
+  - `BumpBox` drop 时运行 `T` 的析构（与 `&mut T` 不同）；
+  - `BumpBox::into_raw` 可取出裸指针。
+- 引用版 `TrDecodable` 现在由 `denco_bumpalo` 为本地类型 `BumpBox` 实现
+  （值版解码 + `alloc_value_async`），与 sw-scope 的 `ScopeOwning` 形态对称；
+  `abs_denco` 里 `&'alloc mut T` 的 blanket impl 保留，供将来「裸引用」形态的
+  arena 使用；
+- 测试：`Vec<u8, BumpArena>`、`BumpString<BumpArena>`、MessagePack/JSON 两种格式
+  把 `Point` 解码为 `BumpBox<Point>`，并用 `assert_unique` 静态验证
+  `abs_denco::TrUnique<Item = Point>`。
+
+### 14.3 json_denco 泛型化
+
+- `JsonDecoder<'r, 'alloc, R, A: TrArena<'alloc> + 'alloc = NoArena>`，新增
+  `arena_: &'alloc A`；`JsonDecoder::new`（NoArena）与
+  `JsonDecoder::new_in(reader, &arena)`；
+- `impl TrDecoder<'de, 'alloc, A> for &mut JsonDecoder<'r, 'alloc, R, A>`；
+  `allocator()` 返回 decoder 内部 arena；
+- `JsonSeqAccess` / `JsonMapAccess` / `JsonEnumAccess` / `JsonVariantAccess`
+  都参数化 `'alloc` / `A`（它们本身持有 `&mut JsonDecoder`，不需要额外 arena
+  字段）；`JsonNameDecoder` / `JsonNameEnumAccess` 携带 `&'alloc A`；
+- 名称分派 helper 增加 `arena` 参数，GAT 类型补 `A`；
+- `json_denco/tests/support` 的 `decode_next_` 把 decoder 的 `'alloc` 显式写出；
+- 保留 `JsonDecoder` 名字与默认 `A = NoArena`；类型注解需要多一个 `'alloc`
+  生命周期（与 `MpDecoder` 相同）。
+
+### 14.4 依赖 patch（本地开发期）
+
+`mm_ptr` 的 `dev/0.2.0` 远端提交 `b014cc6` 仍按旧 `abs_mm`（带 `Alloc` GAT）
+实现，而本地 `mm_ptr` 分支已到 `cc5c64e`（Follow abs_mm update）。为使工作区在
+离线/未推送状态下可构建，`denco/Cargo.toml` 增加了：
+
+```toml
+[patch."https://gitee.com/lino_snsalias/mm_ptr.git"]
+mm_ptr = { path = "../mm_ptr" }
+
+[patch."https://gitee.com/lino_snsalias/abs_mm.git"]
+abs_mm = { path = "../abs_mm" }
+```
+
+上游推送 `mm_ptr` 新提交后应移除这两个 patch。
+
+### 14.5 验证
+
+- `cargo check/test/clippy --workspace --all-features` 全绿；
+- `denco_bumpalo` 4 个集成测试：`Vec<u8, BumpArena>`、`BumpString`、
+  MessagePack `BumpBox<Point>`、JSON `BumpBox<Point>`；
+- `abs_mm::TrUnique` 静态断言通过。
+
+### 14.6 剩余
+
+1. `denco_sw_scope`（`ScopeArena` + `ScopeOwning` + 稳定地址 Retain 保活表）；
+2. 阶段 C：容器/嵌套与 Drop 语义；
+3. 上游 `mm_ptr` 推送后移除本地 patch。
+
+## 15. 现状核对（2026-11-03）
+
+针对「三个目标是否完成」的逐条核对。结论：第 1 条在「值为 owned 字段」的前提下成立；
+第 2、3 条**尚未完成**，需要容器与字符串的 arena 化。
+
+### 15.1 目标 1：mp/json 都能用 BumpArena 解码出生命周期随 arena 的 Box
+
+**成立（有限定）**：
+
+- `MpDecoder::new_in(reader, &bump)` 与 `JsonDecoder::new_in(reader, &bump)` 都返回
+  `BumpBox<'alloc, T>`（`denco_bumpalo` 对 `BumpBox` 实现了
+  `TrDecodable<..., BumpArena>`）；
+- `BumpBox` 的生命周期只跟 arena 的借用，不跟输入缓冲；新增测试
+  `decode_bump_box_outlives_input` 在内层作用域解码、离开作用域后仍能读取；
+- 限定：这里的 `T` 必须是 owned 字段类型；`T` 自身还不能借用 arena（见 15.3）。
+  `BumpBox` 是 `denco_bumpalo` 的本地 newtype，不是 `bumpalo::boxed::Box` 本身，
+  但 Deref/DerefMut 与析构语义一致（drop 时运行 `T` 的析构）。
+
+### 15.2 目标 2：容器的 Allocator 可设为 BumpArena 或 `&mut Bump`
+
+**只完成前半句，且是 `BumpArena` 而非 `&mut Bump`**：
+
+- `Vec<T, A>` / `Box<T, A>` 等容器实现要求 `A: Allocator + Default`，
+  `BumpArena: Default`，所以 `Vec<u8, BumpArena>` 可以解码（已有测试）；
+- **`&mut Bump` 不可用**：
+  - bumpalo 只对 `&'a Bump` 实现 `Allocator`，且要开启 `allocator_api` feature；
+    对 `Bump` / `&mut Bump` 没有实现；
+  - 即使换成 `&Bump`，也不满足我们容器实现要求的 `A: Default`（`&Bump` 不是
+    `Default`）；
+- 要让容器「借用 decoder 的 arena」，需要把容器实现从 `A::default()` 改为从
+  `TrDecoder::allocator()` 取得 arena（阶段 C 的工作），并且容器 allocator 类型要
+  能从 arena 派生（例如 `BumpArena` → `&Bump` 的投影），目前没有这层抽象。
+
+### 15.3 目标 3：mp/json 正确支持带生命周期的类型
+
+**不成立**：
+
+- `denco_macro` 的 `reject_lifetimes_` 明确拒绝带生命周期参数的类型
+  （[model_.rs](../denco_macro/src/model_.rs)）；
+- `abs_denco` 没有 `TrDecodable for &'alloc str` / `&'alloc [u8]` 的实现；
+- `MpDecoder` / `JsonDecoder` 的字符串/字节路径只产出 owned `String` / `Vec<u8>`，
+  `visit_str` 传入的是短生命周期的栈/临时视图，不能升级为 `&'alloc str`；
+- 目前能带生命周期的只有 arena 句柄本身（`BumpBox<'alloc, T>`），不是用户结构体的
+  字段。
+
+要完成第 3 条，至少需要：
+
+1. decoder 在字符串/字节路径上把数据写入 arena，并调用 `visit_borrowed_str` /
+   `visit_borrowed_bytes`；
+2. `abs_denco` 为 `&'alloc str` / `&'alloc [u8]` 提供 `TrDecodable` 实现（或在
+   `TrArena` 上加 `alloc_str` / `alloc_bytes` 能力）；
+3. derive 允许生命周期参数，并把用户类型的 `'a` 绑定到 `'alloc`
+   （`impl<'de, 'alloc, A> TrDecodable<'de, 'alloc, A> for Foo<'alloc>`），
+   约束命名沿用 `__DencoAlloc` / `'__denco_a` 规则；
+4. 相应测试：`Foo<'alloc> { name: &'alloc str, data: &'alloc [u8] }` 在
+   MessagePack 与 JSON 上解码为 `BumpBox<'alloc, Foo<'alloc>>`。

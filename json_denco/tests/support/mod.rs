@@ -319,7 +319,7 @@ where
 
 /// 用已有的解码器继续解码一个值。
 pub async fn decode_next_<'de, 'alloc, T, R>(
-    decoder: &mut JsonDecoder<'_, R>,
+    decoder: &mut JsonDecoder<'_, 'alloc, R>,
 ) -> Result<T, JsonError>
 where
     T: TrDecodable<'de, 'alloc, NoArena>,

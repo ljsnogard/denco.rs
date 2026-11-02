@@ -2,14 +2,14 @@
 //!
 //! 本 crate 只负责把 bumpalo 暴露成 [`abs_denco`] 需要的接口：
 //!
-//! - [`BumpAlloc`] 同时实现 [`core::alloc::Allocator`]（供 `Vec<T, BumpAlloc>`
+//! - [`BumpArena`] 同时实现 [`core::alloc::Allocator`]（供 `Vec<T, BumpArena>`
 //!   这类容器使用）与 [`abs_denco::de::TrArena`]（供引用版解码使用，
 //!   `Ref<T> = &'alloc mut T`）；
 //! - [`BumpString`] 是 `Vec<u8, A>` 的薄封装，用 `Allocator` 参数补上
 //!   `String` 缺少的 allocator 能力。
 //!
 //! 它不依赖任何具体数据格式：`MpDecoder` / `JsonDecoder` 对 allocator 泛型化
-//! 之后，直接把 `&BumpAlloc` 传给解码器即可。
+//! 之后，直接把 `&BumpArena` 传给解码器即可。
 
 #![no_std]
 #![feature(impl_trait_in_assoc_type)]
@@ -19,7 +19,7 @@ extern crate alloc;
 use core::{
     alloc::{AllocError, Allocator, Layout},
     fmt, future,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     ptr::NonNull,
     str,
 };
@@ -27,30 +27,33 @@ use core::{
 use alloc::{string::String, vec::Vec};
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
-use abs_denco::de::{Error, TrArena, TrDecodable, TrDecoder, Visitor};
+use abs_denco::{
+    TrBoxed, TrUnique,
+    de::{Error, TrArena, TrDecodable, TrDecoder, Visitor},
+};
 use atomic_sync::mutex::preemptive::SpinningMutexOwned;
-use bumpalo::Bump;
+use bumpalo::{Bump, boxed::Box as BumpaloBox};
 use gen_mcf2::gen_may_cancel_future;
 
 /// 基于 bumpalo 的 [`Allocator`] 与 [`TrArena`]，每次 [`Default::default`]
 /// 创建一个独立 arena。
 ///
 /// 它**不实现 `Clone`**：clone 一个 arena 没有共享语义。反序列化过程中需要
-/// 「借用」同一个 arena 时，通过 `&BumpAlloc` 传给解码器（`MpDecoder::new_in`
+/// 「借用」同一个 arena 时，通过 `&BumpArena` 传给解码器（`MpDecoder::new_in`
 /// 等），而不是复制。
 ///
 /// # 语义
 ///
-/// - `allocate` 是 O(1) 的 bump；`deallocate` 是 no-op，内存随 [`BumpAlloc`]
+/// - `allocate` 是 O(1) 的 bump；`deallocate` 是 no-op，内存随 [`BumpArena`]
 ///   析构整体释放；
 /// - `shrink` 直接返回原块（bump 无法原地收缩）；
-/// - 不保证 `Send` / `Sync`（`Bump` 本身 `!Sync`），`Arc<T, BumpAlloc>` 不能
+/// - 不保证 `Send` / `Sync`（`Bump` 本身 `!Sync`），`Arc<T, BumpArena>` 不能
 ///   跨线程 `Send`；单线程解码不受影响。
-pub struct BumpAlloc {
+pub struct BumpArena {
     inner_: SpinningMutexOwned<Bump>,
 }
 
-impl BumpAlloc {
+impl BumpArena {
     /// 创建一个新的 arena。
     pub fn new() -> Self {
         Self {
@@ -68,15 +71,15 @@ impl BumpAlloc {
     }
 }
 
-impl Default for BumpAlloc {
+impl Default for BumpArena {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl fmt::Debug for BumpAlloc {
+impl fmt::Debug for BumpArena {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("BumpAlloc")
+        f.write_str("BumpArena")
     }
 }
 
@@ -87,10 +90,10 @@ fn dangling_for_(layout: Layout) -> NonNull<u8> {
     unsafe { NonNull::new_unchecked(align as *mut u8) }
 }
 
-// SAFETY: `allocate` 返回的块由 arena 持有，直到 `BumpAlloc` 析构；`deallocate`
+// SAFETY: `allocate` 返回的块由 arena 持有，直到 `BumpArena` 析构；`deallocate`
 // 是 no-op，符合 `Allocator` 对「释放可以推迟」的约定。`shrink` 返回原块，其大小
 // 一定不小于 `new_layout.size()`。
-unsafe impl Allocator for BumpAlloc {
+unsafe impl Allocator for BumpArena {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if layout.size() == 0 {
             return Result::Ok(NonNull::slice_from_raw_parts(dangling_for_(layout), 0));
@@ -122,6 +125,48 @@ unsafe impl Allocator for BumpAlloc {
     }
 }
 
+/// bumpalo 特化版的独占智能指针，作为 [`BumpArena`] 的 `Ref<T>`。
+///
+/// 内部是 [`bumpalo::boxed::Box`]：内存属于 arena，句柄被 drop 时运行 `T` 的
+/// 析构函数但不归还内存。它实现 [`Deref`] / [`DerefMut`]，并适配
+/// [`abs_mm::res_man::TrBoxed`] / [`abs_mm::res_man::TrUnique`]。
+pub struct BumpBox<'alloc, T: ?Sized>(BumpaloBox<'alloc, T>);
+
+impl<'alloc, T: ?Sized> BumpBox<'alloc, T> {
+    /// 从 arena 分配出的裸指针接管所有权。
+    fn from_raw_(raw: *mut T) -> Self {
+        // SAFETY: 指针来自 `BumpArena` 的 `allocate`，按 `T` 的对齐与大小划定且
+        // 只写入一次；之后由 `BumpBox` 独占。释放由 arena 整体负责，
+        // `bumpalo::boxed::Box` 的 Drop 只运行 `T` 的析构。
+        Self(unsafe { BumpaloBox::from_raw(raw) })
+    }
+
+    /// 取出裸指针，调用方负责之后不再使用本句柄。
+    pub fn into_raw(self) -> *mut T {
+        BumpaloBox::into_raw(self.0)
+    }
+}
+
+impl<T: ?Sized> Deref for BumpBox<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: ?Sized> DerefMut for BumpBox<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+impl<T: ?Sized> TrBoxed for BumpBox<'_, T> {
+    type Item = T;
+}
+
+impl<T: ?Sized> TrUnique for BumpBox<'_, T> {}
+
 /// `TrArena` 分配失败。
 ///
 /// bumpalo 的 [`bumpalo::AllocErr`] 只实现了 `Display`，没有实现
@@ -137,16 +182,16 @@ impl fmt::Display for BumpArenaError {
 
 impl core::error::Error for BumpArenaError {}
 
-impl<'alloc> TrArena<'alloc> for BumpAlloc {
+impl<'alloc> TrArena<'alloc> for BumpArena {
     type Error = BumpArenaError;
 
     type Ref<T: 'alloc>
-        = &'alloc mut T
+        = BumpBox<'alloc, T>
     where
         Self: 'alloc;
 
     type AllocValueAsync<'a, T>
-        = future::Ready<Result<&'alloc mut T, BumpArenaError>>
+        = future::Ready<Result<BumpBox<'alloc, T>, BumpArenaError>>
     where
         'alloc: 'a,
         T: 'alloc + 'a,
@@ -164,15 +209,65 @@ impl<'alloc> TrArena<'alloc> for BumpAlloc {
                 let ptr = block.as_ptr().cast::<T>();
                 // SAFETY: `allocate` 返回按 `layout` 对齐、大小至少
                 // `size_of::<T>()` 的未初始化块；写入一次后由 arena 持有到
-                // `BumpAlloc` 析构，期间不会再被移动或释放。
+                // `BumpArena` 析构，期间不会再被移动或释放。
                 unsafe {
                     ptr.write(value);
-                    Result::Ok(&mut *ptr)
+                    Result::Ok(BumpBox::from_raw_(ptr))
                 }
             }
             Result::Err(_) => Result::Err(BumpArenaError),
         };
         future::ready(result)
+    }
+}
+
+/// 把值版解码结果放进 bump arena，返回 [`BumpBox`] 句柄。
+#[gen_may_cancel_future(DecodeBumpBoxOp, pub, new(pub))]
+async fn decode_bump_box_async_<'de, 'alloc, 'a, T, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<BumpBox<'alloc, T>, D::Error>
+where
+    'de: 'a,
+    'alloc: 'a,
+    T: TrDecodable<'de, 'alloc, BumpArena> + 'alloc,
+    D: TrDecoder<'de, 'alloc, BumpArena> + 'a,
+    D::Error: Error + 'a,
+    C: TrCancellationToken,
+{
+    let arena = de.allocator();
+    let value = T::decode_async(de)
+        .may_cancel_with(cancel.child_token())
+        .await?;
+    arena
+        .alloc_value_async(value)
+        .may_cancel_with(cancel)
+        .await
+        .map_err(<D::Error as Error>::custom)
+}
+
+impl<'de, 'alloc, T> TrDecodable<'de, 'alloc, BumpArena> for BumpBox<'alloc, T>
+where
+    T: TrDecodable<'de, 'alloc, BumpArena> + 'alloc,
+{
+    type DecodeAsync<'a, D>
+        = DecodeBumpBoxOpAsync<'de, 'alloc, 'a, 'a, T, D>
+    where
+        'de: 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, BumpArena> + 'a,
+        D::Error: 'a,
+        Self: 'a;
+
+    fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
+    where
+        'de: 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, BumpArena> + 'a,
+        D::Error: 'a,
+        Self: 'a,
+    {
+        DecodeBumpBoxOpAsync::new(de)
     }
 }
 
@@ -185,7 +280,7 @@ impl<'alloc> TrArena<'alloc> for BumpAlloc {
 /// # 注意
 ///
 /// - 与 `String` 一样，`A` 必须由调用方提供；解码时用 [`Default::default`]
-///   创建一个独立 arena（`BumpString<BumpAlloc>` 可直接使用）。
+///   创建一个独立 arena（`BumpString<BumpArena>` 可直接使用）。
 /// - 若要让字符串借用 decoder 的 arena（`BumpString<'a>` 形态），需要
 ///   `abs_denco` 提供 allocator 注入能力，见 `dev-notes` 中的限制分析。
 pub struct BumpString<A: Allocator> {
