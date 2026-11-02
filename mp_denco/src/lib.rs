@@ -31,11 +31,15 @@
 
 extern crate alloc;
 
+#[cfg(feature = "bump")]
+mod alloc_;
 mod config_;
 mod de_;
 mod error_;
 mod ser_;
 
+#[cfg(feature = "bump")]
+pub use alloc_::{BumpAlloc, BumpString};
 pub use config_::{DefaultConfig, SerializerConfig, StructMapConfig, StructTupleConfig};
 pub use de_::MpDecoder;
 pub use error_::MpError;
