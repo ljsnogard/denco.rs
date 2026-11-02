@@ -31,8 +31,8 @@ use abs_buff::{
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use abs_denco::{
     de::{
-        EnumAccess, MapAccess, NoArena, SeqAccess, TrArena, TrDecodableSeed, TrDecoder,
-        VariantAccess, Visitor,
+        EnumAccess, Error, MapAccess, NoArena, SeqAccess, TrArena, TrDecodableSeed, TrDecoder,
+        TrStrFromUtf8, VariantAccess, Visitor,
     },
     forward_to_decode_any,
 };
@@ -1443,6 +1443,32 @@ where
     Ok(value)
 }
 
+/// 读取一个 JSON 字符串并交给 `S` 构造；`S` 可以把内容复制进 arena。
+#[gen_may_cancel_future(DecodeStringAsOp, pub, new(pub))]
+async fn decode_string_as_async_<'alloc, 'r, 'de, 'a, A, R, S, C>(
+    de: &'a mut JsonDecoder<'r, 'alloc, R, A>,
+    cancel: C,
+) -> Result<S, JsonError>
+where
+    A: TrArena<'alloc> + 'alloc,
+    'de: 'a,
+    'alloc: 'a,
+    'r: 'a,
+    R: TrBuffRead<u8> + 'r + 'a,
+    S: TrStrFromUtf8<'alloc, A> + 'a,
+    C: TrCancellationToken,
+{
+    if cancel.is_cancelled() {
+        return Err(JsonError::new("operation cancelled"));
+    }
+    let text = read_string_value_async_(de, cancel.child_token()).await?;
+    let arena = de.allocator();
+    S::from_utf8_async(arena, &text)
+        .may_cancel_with(cancel)
+        .await
+        .map_err(<JsonError as Error>::custom)
+}
+
 impl<'de, 'alloc, 'r, R, A> TrDecoder<'de, 'alloc, A> for &mut JsonDecoder<'r, 'alloc, R, A>
 where
     A: TrArena<'alloc> + 'alloc,
@@ -2225,6 +2251,19 @@ where
             ValueMode::IgnoredAny,
             visitor,
         )
+    }
+
+    fn decode_string_as<'a, S>(
+        self,
+    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<S, Self::Error>>
+    where
+        'de: 'a,
+        'alloc: 'a,
+        S: TrStrFromUtf8<'alloc, A> + 'a,
+        Self: 'a,
+        Self::Error: 'a,
+    {
+        DecodeStringAsOpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, S>::new(self)
     }
 }
 

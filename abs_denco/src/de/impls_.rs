@@ -3,12 +3,12 @@
 #[cfg(target_has_atomic = "ptr")]
 use alloc::sync::Arc;
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::{alloc::Allocator, future, marker::PhantomData};
+use core::{future, marker::PhantomData};
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 
 use super::{
-    Error, SeqAccess, TrArena, TrDecodable, TrDecoder, Unexpected, Visitor,
+    Error, SeqAccess, TrAllocSource, TrArena, TrDecodable, TrDecoder, Unexpected, Visitor,
     collect_::SeqCollectVisitor, error_::VisitorExpected,
 };
 
@@ -711,14 +711,14 @@ where
     }
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, A> TrDecodable<'de, 'alloc, Alloc>
-    for Vec<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for Vec<T, CA>
 where
     T: TrDecodable<'de, 'alloc, Alloc> + 'de,
-    A: Allocator + Default,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, Vec<T, A>>>
+        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, Vec<T, CA>>>
     where
         'de: 'a,
         'alloc: 'a,
@@ -734,7 +734,8 @@ where
         D::Error: 'a,
         Self: 'a,
     {
-        de.decode_seq(SeqCollectVisitor::<T, Self>::new_())
+        let alloc = CA::alloc_from(de.allocator());
+        de.decode_seq(SeqCollectVisitor::<T, Self>::new_(alloc))
     }
 }
 
@@ -838,31 +839,32 @@ where
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeBoxOp)]
-pub async fn decode_box_op_async_<'de, 'alloc, 'a, Alloc, T, A, D, C>(
+pub async fn decode_box_op_async_<'de, 'alloc, 'a, Alloc, T, CA, D, C>(
     de: D,
     cancel: C,
-) -> Result<Box<T, A>, D::Error>
+) -> Result<Box<T, CA>, D::Error>
 where
     Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
     T: TrDecodable<'de, 'alloc, Alloc> + 'de,
-    A: Allocator + Default + 'a,
+    CA: TrAllocSource<'alloc, Alloc> + 'a,
     D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
+    let alloc = CA::alloc_from(de.allocator());
     let value = T::decode_async(de).may_cancel_with(cancel).await?;
-    Ok(Box::new_in(value, A::default()))
+    Ok(Box::new_in(value, alloc))
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, A> TrDecodable<'de, 'alloc, Alloc>
-    for Box<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for Box<T, CA>
 where
     T: TrDecodable<'de, 'alloc, Alloc> + 'de,
-    A: Allocator + Default,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeBoxOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, A, D>
+        = DecodeBoxOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, CA, D>
     where
         'de: 'a,
         'alloc: 'a,
@@ -884,32 +886,33 @@ where
 
 #[cfg(target_has_atomic = "ptr")]
 #[gen_mcf2::gen_may_cancel_future(DecodeArcOp)]
-pub async fn decode_arc_op_async_<'de, 'alloc, 'a, Alloc, T, A, D, C>(
+pub async fn decode_arc_op_async_<'de, 'alloc, 'a, Alloc, T, CA, D, C>(
     de: D,
     cancel: C,
-) -> Result<Arc<T, A>, D::Error>
+) -> Result<Arc<T, CA>, D::Error>
 where
     Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
     T: TrDecodable<'de, 'alloc, Alloc> + 'de,
-    A: Allocator + Default + 'a,
+    CA: TrAllocSource<'alloc, Alloc> + 'a,
     D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
+    let alloc = CA::alloc_from(de.allocator());
     let value = T::decode_async(de).may_cancel_with(cancel).await?;
-    Ok(Arc::new_in(value, A::default()))
+    Ok(Arc::new_in(value, alloc))
 }
 
 #[cfg(target_has_atomic = "ptr")]
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, A> TrDecodable<'de, 'alloc, Alloc>
-    for Arc<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for Arc<T, CA>
 where
     T: TrDecodable<'de, 'alloc, Alloc> + 'de,
-    A: Allocator + Default,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeArcOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, A, D>
+        = DecodeArcOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, CA, D>
     where
         'de: 'a,
         'alloc: 'a,

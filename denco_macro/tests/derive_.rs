@@ -763,3 +763,66 @@ fn enum_struct_variant_skip_() {
         }
     );
 }
+
+/// 测试目标：derive 接受生命周期参数，并把解码侧的生命周期绑定到 arena。
+/// Test goal: derive accepts lifetime parameters and binds them to the arena on
+/// the decode side.
+///
+/// - 手段：对 `LifetimeRecord<'alloc>` 同时派生编解码，并只做一次编码。
+///   / How: derive both codecs for `LifetimeRecord<'alloc>` and encode once.
+/// - 判断：编码成功且非空；解码 impl 的生成代码也通过编译（借用字段的
+///   `TrDecodable` 约束在 impl 上）。
+///   / What: encoding succeeds and is non-empty; the generated decode impl also
+///   compiles (borrowing-field bounds live on the impl).
+#[derive(Debug, PartialEq, denco_macro::TrEncodable, denco_macro::TrDecodable)]
+struct LifetimeRecord<'alloc> {
+    name_: &'alloc str,
+    maybe_: Option<&'alloc str>,
+}
+
+/// 测试目标：生命周期类型的编码可用。
+/// Test goal: encoding a lifetime-carrying type works.
+///
+/// - 手段：编码 `LifetimeRecord { name_: "hello", maybe_: Some("world") }`。
+///   / How: encode `LifetimeRecord { name_: "hello", maybe_: Some("world") }`.
+/// - 判断：输出非空，且再次解码为 `String` 字段的结构（这里只断言非空）。
+///   / What: the output is non-empty (the full arena decode is covered by
+///   `denco_bumpalo/tests/lifetime_.rs`).
+#[test]
+fn lifetime_params_encode_() {
+    let value = LifetimeRecord {
+        name_: "hello",
+        maybe_: Some("world"),
+    };
+    let bytes = encode_(&value);
+    assert!(!bytes.is_empty());
+}
+
+/// 带生命周期的枚举：覆盖变体字段的借用约束。
+/// A lifetime-carrying enum covering borrowing bounds on variant fields.
+#[derive(Debug, PartialEq, denco_macro::TrEncodable, denco_macro::TrDecodable)]
+enum LifetimeEnum<'alloc> {
+    Empty,
+    Text(&'alloc str),
+    Pair(&'alloc str, &'alloc [u8]),
+}
+
+/// 测试目标：生命周期枚举的编码可用（解码 impl 也通过编译）。
+/// Test goal: encoding a lifetime-carrying enum works and its decode impl compiles.
+///
+/// - 手段：编码三个变体。
+///   / How: encode all three variants.
+/// - 判断：输出非空；完整的 arena 解码由 `denco_bumpalo/tests/lifetime_.rs` 覆盖。
+///   / What: outputs are non-empty; full arena decoding is covered by
+///   `denco_bumpalo/tests/lifetime_.rs`.
+#[test]
+fn lifetime_enum_encode_() {
+    for value in [
+        LifetimeEnum::Empty,
+        LifetimeEnum::Text("hello"),
+        LifetimeEnum::Pair("pair", &[1, 2]),
+    ] {
+        let bytes = encode_(&value);
+        assert!(!bytes.is_empty());
+    }
+}

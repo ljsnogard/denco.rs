@@ -2,7 +2,7 @@
 
 use abs_cancel::TrMayCancel;
 
-use super::{Error, TrArena, Visitor};
+use super::{Error, TrArena, TrStrFromUtf8, Visitor};
 
 /// 一个可以从某种格式读出数据结构的解码器。
 ///
@@ -867,5 +867,36 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 默认返回 `true`。纯同步判断，不需要取消令牌。
     fn is_human_readable(&self) -> bool {
         true
+    }
+
+    /// 读取一个字符串并交给 `S` 构造；`S` 可以借用 decoder 的 arena。
+    ///
+    /// 与其它 `decode_*` 不同，本方法用 RPITIT 而不是 GAT：返回的 future
+    /// 从不需要被调用方命名（`&'alloc str` 的 `TrDecodable` 实现会用自己的
+    /// 命名 helper 包住它），而 GAT 没有默认关联类型，新增 GAT 会破坏所有
+    /// 既有 [`TrDecoder`] 实现。这里的默认实现返回「不支持」错误；需要
+    /// arena 字符串的格式（`MpDecoder` / `JsonDecoder`）覆盖它。
+    ///
+    /// `S: TrStrFromUtf8` 的构造错误由实现方用 [`Error::custom`] 映射为
+    /// `Self::Error`。
+    ///
+    /// # Errors
+    ///
+    /// 默认实现返回「不支持」错误；覆盖实现还会在输入不合法、底层读取失败、
+    /// arena 分配失败或响应取消时返回错误。
+    fn decode_string_as<'a, S>(
+        self,
+    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<S, Self::Error>>
+    where
+        'de: 'a,
+        'alloc: 'a,
+        S: TrStrFromUtf8<'alloc, Alloc> + 'a,
+        Self: 'a,
+        Self::Error: 'a,
+    {
+        let _ = self;
+        core::future::ready(Err(<Self::Error as Error>::custom(
+            "decode_string_as is not supported by this decoder",
+        )))
     }
 }

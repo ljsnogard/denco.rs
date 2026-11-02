@@ -54,11 +54,7 @@ pub(crate) fn expand_(model: &TypeModel) -> TokenStream {
     }
 }
 
-fn encode_helper_(
-    model: &TypeModel,
-    op_prefix: &syn::Ident,
-    op_fn: &syn::Ident,
-) -> TokenStream {
+fn encode_helper_(model: &TypeModel, op_prefix: &syn::Ident, op_fn: &syn::Ident) -> TokenStream {
     let ident = &model.ident_;
     let ty_generics = model.ty_generics_();
     let type_params = model.type_params_();
@@ -117,6 +113,11 @@ fn encode_impl_(model: &TypeModel, op_async: &syn::Ident) -> TokenStream {
     let ident = &model.ident_;
     let ty_generics = model.ty_generics_();
     let type_params = model.type_params_();
+    let user_lts: Vec<syn::Lifetime> = model
+        .generics_
+        .lifetimes()
+        .map(|param| param.lifetime.clone())
+        .collect();
     let const_params: Vec<_> = model
         .generics_
         .const_params()
@@ -143,7 +144,7 @@ fn encode_impl_(model: &TypeModel, op_async: &syn::Ident) -> TokenStream {
     quote! {
         impl #impl_generics abs_denco::ser::TrEncodable for #ident #ty_generics #where_clause {
             type EncodeAsync<'__denco_a, __DencoEncoder>
-                = #op_async<'__denco_a, '__denco_a, #(#type_params,)* __DencoEncoder, #(#const_params,)*>
+                = #op_async<'__denco_a, #(#user_lts,)* '__denco_a, #(#type_params,)* __DencoEncoder, #(#const_params,)*>
             where
                 Self: '__denco_a,
                 __DencoEncoder: abs_denco::ser::TrEncoder + '__denco_a,
@@ -371,4 +372,3 @@ fn encode_enum_body_(
         }
     }
 }
-

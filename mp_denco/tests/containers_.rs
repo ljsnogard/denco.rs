@@ -33,7 +33,7 @@ use std::{
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
 use abs_denco::{
-    de::{NoArena, TrDecodable},
+    de::{NoArena, TrAllocSource, TrDecodable},
     ser::TrEncodable,
 };
 use mp_denco::{MpDecoder, MpEncoder};
@@ -90,6 +90,21 @@ unsafe impl Allocator for CountingAlloc {
 // SAFETY: `CountingAlloc` 是零大小、无 Drop、无别名的分配器，克隆出的实例与
 // 原实例等价；计数用的是全局静态量。
 unsafe impl AllocatorClone for CountingAlloc {}
+
+// 解码侧：这些测试 allocator 与 arena 无关，直接返回一个新实例。
+// 这正是 `TrAllocSource` 允许的「容器与 arena 无关」形态；共享 arena 的形态由
+// `&'alloc A` 的 blanket impl 提供。
+impl<'alloc, const ID: usize> TrAllocSource<'alloc, NoArena> for TaggedAlloc<ID> {
+    fn alloc_from(_arena: &'alloc NoArena) -> Self {
+        TaggedAlloc
+    }
+}
+
+impl<'alloc> TrAllocSource<'alloc, NoArena> for CountingAlloc {
+    fn alloc_from(_arena: &'alloc NoArena) -> Self {
+        CountingAlloc
+    }
+}
 
 /// 带容器字段的派生类型：验证 `denco_macro` 不需要为容器做任何特殊处理。
 ///

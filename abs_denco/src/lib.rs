@@ -41,9 +41,17 @@
 //!
 //! 所有容器实现都按 `A: Allocator` 泛化：`Vec`、`Box`、五个
 //! `alloc::collections` 容器、`HashMap` / `HashSet`、`Rc` / `Arc` 都接受自定义
-//! allocator。解码用 `A::default()` 创建目标容器，因此 `TrDecodable` 要求
-//! `A: Default`；`BTreeMap` / `BTreeSet` 还要求 `A: AllocatorClone`。没有默认
-//! 实例的 allocator（例如 `&A`）需要先解码到默认 allocator 的容器，再自行迁移。
+//! allocator。解码侧的 allocator 由 [`TrAllocSource`](de::TrAllocSource) 从
+//! decoder 的 arena 投影得到：
+//!
+//! - `Vec<T, Global>`（以及默认的 `Vec<T>`）与 arena 无关，任意 decoder 都可解码；
+//! - `Vec<T, &'alloc A>` 借用 decoder 的同一个 arena，适合把容器与引用版解码
+//!   结果放在一起；要求 `A: Allocator`（`&A` 的 `Allocator` 由 core 的 blanket
+//!   impl 提供，bumpalo 不需要开启额外的 feature）；
+//! - `BTreeMap` / `BTreeSet` 额外要求 allocator 实现 `AllocatorClone`。
+//!
+//! 不再用 `A::default()` 构造容器，因此容器不会各自新建 arena；自定义 allocator
+//! 若与 arena 无关，需要自行实现 [`TrAllocSource`](de::TrAllocSource)。
 //!
 //! 这些构造器（`VecDeque::new_in`、`BTreeMap::new_in`、
 //! `HashMap::with_hasher_in` 等）在当前 nightly 上仍受 `allocator_ext` 控制，

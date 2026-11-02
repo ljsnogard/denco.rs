@@ -27,48 +27,54 @@ fn block_on_<F: Future>(future: F) -> F::Output {
     }
 }
 
-/// 测试目标：`Vec` 可以用 `BumpArena` 作为 allocator 完成解码。
-/// Test goal: `Vec` can decode with `BumpArena` as its allocator.
+/// 测试目标：`Vec` 可以借用 decoder 的 `BumpArena` 作为 allocator 完成解码。
+/// Test goal: `Vec` can borrow the decoder's `BumpArena` as its allocator.
 ///
-/// - 手段：用 MessagePack 数组 `[0x93, 0x01, 0x02, 0x03]` 解码
-///   `Vec<u8, BumpArena>`。
-///   / How: decode `Vec<u8, BumpArena>` from the MessagePack array
-///   `[0x93, 0x01, 0x02, 0x03]`.
-/// - 判断：结果等于 `[1, 2, 3]`，说明 `A: Allocator + Default` 的容器路径
-///   在 `BumpArena` 上成立。
-///   / What: the result equals `[1, 2, 3]`, proving the `A: Allocator + Default`
-///   container path works with `BumpArena`.
+/// - 手段：用 `MpDecoder::new_in(&mut input, &bump)` 解码
+///   `Vec<u8, &BumpArena>`，输入是 MessagePack 数组 `[0x93, 0x01, 0x02, 0x03]`。
+///   / How: decode `Vec<u8, &BumpArena>` from the MessagePack array
+///   `[0x93, 0x01, 0x02, 0x03]` with `MpDecoder::new_in(&mut input, &bump)`.
+/// - 判断：结果等于 `[1, 2, 3]`，且 `bump.allocated_bytes() > 0`，说明容器与
+///   decoder 共享同一个 arena，而不是各自 `Default` 出一个新 arena。
+///   / What: the result equals `[1, 2, 3]` and `bump.allocated_bytes() > 0`,
+///   proving the container shares the decoder's arena instead of creating a new
+///   one via `Default`.
 #[test]
 fn decode_vec_with_bump_alloc() {
+    let bump = BumpArena::new();
     let bytes = [0x93u8, 0x01, 0x02, 0x03];
     let mut input: &[u8] = &bytes;
-    let decoder = MpDecoder::new(&mut input);
-    let value: Vec<u8, BumpArena> = block_on_(
-        Vec::<u8, BumpArena>::decode_async(decoder).may_cancel_with(NonCancellableToken::new()),
+    let decoder = MpDecoder::new_in(&mut input, &bump);
+    let value: Vec<u8, &BumpArena> = block_on_(
+        Vec::<u8, &BumpArena>::decode_async(decoder).may_cancel_with(NonCancellableToken::new()),
     )
     .expect("解码应当成功");
     assert_eq!(&*value, &[1u8, 2, 3]);
+    assert!(bump.allocated_bytes() > 0, "容器应使用 decoder 的 arena");
 }
 
-/// 测试目标：`BumpString`（`Vec<u8, A>` 的薄封装）可以用 `BumpArena` 解码。
-/// Test goal: `BumpString` (a thin wrapper over `Vec<u8, A>`) decodes with `BumpArena`.
+/// 测试目标：`BumpString` 可以借用 decoder 的 `BumpArena` 完成解码。
+/// Test goal: `BumpString` can borrow the decoder's `BumpArena`.
 ///
-/// - 手段：用 MessagePack fixstr `0xa5` + `"hello"` 解码 `BumpString<BumpArena>`。
-///   / How: decode `BumpString<BumpArena>` from the MessagePack fixstr `0xa5` + `"hello"`.
-/// - 判断：字符串内容为 `"hello"`，说明给 `String` 补 allocator 参数的薄封装可行。
-///   / What: the content is `"hello"`, proving the thin wrapper that gives `String`
-///   an allocator parameter works.
+/// - 手段：用 `MpDecoder::new_in(&mut input, &bump)` 解码
+///   `BumpString<&BumpArena>`，输入是 MessagePack fixstr `0xa5` + `"hello"`。
+///   / How: decode `BumpString<&BumpArena>` from the MessagePack fixstr
+///   `0xa5` + `"hello"` with `MpDecoder::new_in(&mut input, &bump)`.
+/// - 判断：字符串内容为 `"hello"`，且 arena 的 `allocated_bytes()` 增长。
+///   / What: the content is `"hello"` and the arena's `allocated_bytes()` grows.
 #[test]
 fn decode_bump_string() {
+    let bump = BumpArena::new();
     let bytes = [0xa5u8, b'h', b'e', b'l', b'l', b'o'];
     let mut input: &[u8] = &bytes;
-    let decoder = MpDecoder::new(&mut input);
-    let value: BumpString<BumpArena> = block_on_(
-        BumpString::<BumpArena>::decode_async(decoder).may_cancel_with(NonCancellableToken::new()),
+    let decoder = MpDecoder::new_in(&mut input, &bump);
+    let value: BumpString<&BumpArena> = block_on_(
+        BumpString::<&BumpArena>::decode_async(decoder).may_cancel_with(NonCancellableToken::new()),
     )
     .expect("解码应当成功");
     assert_eq!(&*value, "hello");
     assert_eq!(value.as_bytes_(), b"hello");
+    assert!(bump.allocated_bytes() > 0, "字符串应使用 decoder 的 arena");
 }
 
 /// 测试目标：引用版解码把值放进 bump arena，返回 `BumpBox<Point>` 句柄。

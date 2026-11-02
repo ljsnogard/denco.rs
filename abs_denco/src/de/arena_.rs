@@ -71,6 +71,35 @@ pub trait TrArena<'alloc> {
         Self: 'alloc + 'a;
 }
 
+/// 能为「字节切片」划出 arena 空间的分配器。
+///
+/// [`TrArena`] 只承诺「值 → [`TrArena::Ref<T>`]」，而 [`TrArena::Ref`] 要求
+/// `T: Sized`，无法表达 `&'alloc [u8]` / `&'alloc str`。本 trait 补充这类
+/// 定长字节切片能力，供 `&'alloc str` / `&'alloc [u8]` 的解码使用。
+///
+/// 与 [`TrArena`] 相同，分配是**异步且可失败**的，调用方用
+/// `.may_cancel_with(token)` 驱动返回的 future。
+///
+/// # 实现方约定
+///
+/// 返回的切片必须与 arena 同寿命，且不得被重新分配或覆盖；实现方通常直接
+/// 从 arena 划出一块 `u8` 空间并逐字节拷贝。没有 arena 的实现（例如
+/// [`NoArena`]）不应实现本 trait，这样 `&'alloc str` / `&'alloc [u8]` 在无 arena
+/// 的解码器下会得到清晰的编译错误。
+pub trait TrArenaBytes<'alloc>: TrArena<'alloc> {
+    /// 划出字节空间时产生的可取消 future。
+    type AllocBytesAsync<'a>: TrMayCancel<'a, MayCancelOutput = Result<&'alloc [u8], Self::Error>>
+    where
+        'alloc: 'a,
+        Self: 'alloc + 'a;
+
+    /// 把 `src` 的字节拷贝进 arena，返回借用 arena 的切片。
+    fn alloc_bytes_async<'a>(&'alloc self, src: &'a [u8]) -> Self::AllocBytesAsync<'a>
+    where
+        'alloc: 'a,
+        Self: 'alloc + 'a;
+}
+
 /// 不使用 arena 的解码器所报告的分配器。
 ///
 /// 它不保存任何状态，[`TrArena::Ref`] 就是 `T` 本身；`alloc_value_async`

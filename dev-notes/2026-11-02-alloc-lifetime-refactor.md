@@ -13,6 +13,10 @@ B1 方向已确认；`TrArena` 的异步化与「就地构造」取舍见 §11�
 必须异步、可失败；就地构造不纳入阶段 B）。**B1 已于 2026-11-02 晚完成**，
 实施记录见 §12；bumpalo / sw-scope 的具体 arena 与引用版验收是阶段 B 的剩余工作。
 
+**进展（2026-11-03）**：阶段 C 的两项 API 决策（容器 allocator 投影、字符串
+构造 trait 的衔接方式）已定稿并写入 §16，实施记录见 §17；目标 A/B 完成，
+sw-scope 继续暂缓。
+
 ## 1. 背景与问题
 
 - `TrDecodable<'de>` 只有一个生命周期；`Self = &'alloc mut Foo` 的 `'alloc` 无法
@@ -877,3 +881,395 @@ abs_mm = { path = "../abs_mm" }
    约束命名沿用 `__DencoAlloc` / `'__denco_a` 规则；
 4. 相应测试：`Foo<'alloc> { name: &'alloc str, data: &'alloc [u8] }` 在
    MessagePack 与 JSON 上解码为 `BumpBox<'alloc, Foo<'alloc>>`。
+
+## 16. 阶段 C 设计（2026-11-03）
+
+**结论**：阶段 C 分两块落地，均为**新增**抽象 + **替换**旧的 `A: Allocator +
+Default` 容器实现（后者是实现目标 A 的必要代价，不是回退 §9~§15 的接口）：
+
+1. 容器 allocator 由新的 [`TrAllocSource`] 投影从 `TrDecoder::allocator()` 取得；
+   同一个 impl 同时支持 `Global`（与 arena 无关，保持 `Vec<T>` 可用）与
+   `&'alloc A`（共享 decoder 的 arena）。
+2. 新增 [`TrStrFromUtf8`] 与 [`TrArenaBytes`]，并通过
+   `TrDecoder::decode_string_as<S>` 把「目标字符串类型」交给 decoder；`&'alloc str`
+   与 `&'alloc [u8]` 因此可解码，`BumpString` 不再依赖 `Default`。
+
+[`TrAllocSource`]: ../abs_denco/src/de/alloc_source_.rs
+[`TrStrFromUtf8`]: ../abs_denco/src/de/str_.rs
+[`TrArenaBytes`]: ../abs_denco/src/de/arena_.rs
+
+上述形状已用 `.tmp/probe-stage-c` 验证：容器投影的 coherence、`TrStrFromUtf8`
+的异步 GAT、`decode_string_as` 以 RPITIT（而非 GAT）+ 默认实现接入、以及
+`Visitor` 以 `Self: 'a` 推出投影字段寿命，均可编译。
+
+### 16.1 目标 A：容器 allocator 来自 decoder
+
+#### 16.1.1 为什么需要一个新的投影 trait
+
+容器类型里的 `A` 必须是**具体类型**，而 decoder 只提供 `&'alloc Alloc`。
+在 `TrArena` 上加 `type ContainerAlloc` 会在 `Vec<T, Global>` 与
+`Vec<T, &'alloc A>` 之间二选一：
+
+- 只支持 `&'alloc A` 会让 `Vec<T>` 这类字段（`Global`）在带 arena 的 decoder
+  下无法解码；
+- 只支持 `Global` 则无法共享 arena。
+
+因此把「如何从 `&'alloc Alloc` 得到容器 allocator」抽成独立 trait，并给出两个
+互不重叠的实现：
+
+```rust
+pub trait TrAllocSource<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Allocator + Sized {
+    /// 从 decoder 的 arena 取得容器 allocator 实例。
+    fn alloc_from(arena: &'alloc Alloc) -> Self;
+}
+
+/// `Global`：容器与 arena 无关，`Vec<T>` 在任何 decoder 下都可解码。
+impl<'alloc, Alloc> TrAllocSource<'alloc, Alloc> for Global
+where
+    Alloc: TrArena<'alloc> + 'alloc,
+{ /* Global */ }
+
+/// `&'alloc Alloc`：容器借用 decoder 的同一个 arena。
+impl<'alloc, Alloc> TrAllocSource<'alloc, Alloc> for &'alloc Alloc
+where
+    Alloc: TrArena<'alloc> + 'alloc + Allocator,
+{ /* arena */ }
+```
+
+两个实现的 self 类型分别是 `Global` 与引用，不可能统一，coherence 成立；因此
+容器只需**一个** impl：
+
+```rust
+impl<'de, 'alloc, Alloc, T, CA> TrDecodable<'de, 'alloc, Alloc> for Vec<T, CA>
+where
+    Alloc: TrArena<'alloc> + 'alloc,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+{ /* de.decode_seq(SeqCollectVisitor::new_(CA::alloc_from(de.allocator()))) */ }
+```
+
+`de.allocator()` 返回 `&'alloc Alloc`，所以 `CA = &'alloc Alloc` 时容器与引用版
+结果共享同一个 arena；`CA = Global` 时行为与阶段 A 之前一致。**不再出现
+`A::default()`。**
+
+#### 16.1.2 为什么不需要 bumpalo 的 `allocator_api`
+
+`core` 已为 `&A`（`A: Allocator + ?Sized`）提供 `Allocator` 实现（1.100 稳定）。
+`BumpArena` 自己实现了 `Allocator`，于是 `&BumpArena: Allocator` 自动成立；容器
+写 `Vec<T, &'alloc BumpArena>` 即可。`&mut Bump` 仍然不可用（`&mut A` 只实现了
+`AllocatorNightly`），这与既有结论一致，阶段 C 不处理。
+
+#### 16.1.3 构造器（sink）改造
+
+`TrSeqSink` / `TrMapSink` 增加关联类型并显式接收 allocator 实例：
+
+```rust
+pub trait TrSeqSink<T>: Sized {
+    type Alloc: Allocator;
+    fn empty_(alloc: Self::Alloc) -> Self;
+    fn push_(&mut self, item: T);
+}
+```
+
+`SeqCollectVisitor<T, C>` / `MapCollectVisitor<K, V, C>` 由「零尺寸」改为持有
+`C::Alloc`；visitor 的 `Visitor` impl 在 where 里补 `C::Alloc: 'alloc`（这样
+`'alloc: 'a` 就能推出方法体需要的 `C::Alloc: 'a`，不必改 `Visitor` 方法签名）。
+`BTreeMap` / `BTreeSet` 继续要求 `CA: AllocatorClone`（`&A` 有核心 blanket impl）。
+
+#### 16.1.4 破坏性变更（需要确认）
+
+- 删除所有 `A: Allocator + Default` 的**解码** impl（编码侧的 `A: Allocator`
+  不变）；`Vec<T, BumpArena>`（容器自己拥有一个 arena）不再可解码，改用
+  `Vec<T, &'alloc BumpArena>`（共享 decoder 的 arena）或 `Vec<T, Global>`；
+- `BumpString<BumpArena>` 同理改为 `BumpString<&'alloc BumpArena>` 或
+  `BumpString<Global>`；
+- `Vec<T, Global>`、`Vec<T>` 等既有形态完全不变。
+
+### 16.2 目标 B：`TrStrFromUtf8` 与借用字符串
+
+#### 16.2.1 trait 形状与四个决策
+
+```rust
+pub trait TrStrFromUtf8<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
+    /// 构造失败的错误；decoder 用 `D::Error::custom` 映射。
+    type Error: core::error::Error;
+
+    type FromUtf8Async<'a>: TrMayCancel<'a, MayCancelOutput = Result<Self, Self::Error>>
+    where
+        'alloc: 'a,
+        Alloc: 'alloc + 'a,
+        Self: 'a;
+
+    /// 用 decoder 的 arena 从**已校验**的 UTF-8 文本构造 `Self`。
+    fn from_utf8_async<'a>(alloc: &'alloc Alloc, value: &'a str) -> Self::FromUtf8Async<'a>
+    where
+        'alloc: 'a,
+        Alloc: 'alloc + 'a,
+        Self: 'a;
+}
+```
+
+四个问题的结论：
+
+1. **异步**：返回 `TrMayCancel` future，调用方用 `.may_cancel_with(token)` 驱动。
+   与 `TrArena::alloc_value_async` 的约定一致：future 自身不带令牌参数，sw-scope
+   未来的 `ScopeStr` 可以在 future 内部等待域锁；bumpalo / `String` 用
+   `core::future::Ready`。
+2. **整段一次构造**：v1 只提供「一次性拿到完整 `&str`」的入口。格式侧仍按需
+   缓冲（短字符串用栈数组，长字符串用 `Vec<u8>`/`String`），但不再要求目标类型
+   支持增量 push。增量 builder（`new + push_str + finish`）留作以后优化，接口
+   可另加 `TrStrBuilder`，不改本 trait。
+3. **UTF-8 校验由 decoder 负责**：decoder 在调用 trait 前已经验证
+   （MessagePack 的 `str::from_utf8`、JSON 的 `String::from_utf8`）；trait 的
+   参数是 `&str`，从类型上排除非法 UTF-8。`String` / `BumpString` 直接复制，
+   `&'alloc str` 只做 arena 拷贝 + `from_utf8_unchecked`。
+4. **错误类型自定义**：`type Error: core::error::Error`，格式在调用点
+   `map_err(D::Error::custom)`。`String` 用 `Infallible`，`&'alloc str` /
+   `BumpString` 用 arena 的 `Error`。
+
+实现清单：`String`（`Infallible`）、`&'alloc str`（需 `Alloc: TrArenaBytes`）、
+`denco_bumpalo::BumpString<CA>`（`CA: TrAllocSource`，同步 `Ready`）。
+`Cow<'alloc, str>` 暂不接入：现有 `Cow` 的 `TrDecodable` 语义是「一律 Owned」，
+改成 Borrowed 会与 `cow` feature 的既有契约冲突，留待单独讨论。
+
+#### 16.2.2 与 decoder 的衔接：`decode_string_as<S>`
+
+选**显式入口**，不加 `Visitor` 关联类型、也不写
+`impl<S: TrStrFromUtf8> TrDecodable for S` blanket impl（与 derive/其它 impl
+冲突的风险正如 §15.3 所提示）。方法放在 `TrDecoder` 上，用 **RPITIT + 默认实现**：
+
+```rust
+pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
+    // ...既有 GAT 不变...
+
+    /// 读取一个字符串并交给 `S` 构造；`S` 可以借用 arena。
+    fn decode_string_as<'a, S>(self)
+        -> impl TrMayCancel<'a, MayCancelOutput = Result<S, Self::Error>>
+    where
+        'de: 'a,
+        'alloc: 'a,
+        S: TrStrFromUtf8<'alloc, Alloc> + 'a,
+        Self: 'a,
+        Self::Error: 'a,
+    {
+        let _ = self;
+        core::future::ready(Err(<Self::Error as Error>::custom(
+            "decode_string_as is not supported by this decoder",
+        )))
+    }
+}
+```
+
+- **为什么用 RPITIT 而不是 GAT**：这里的 future 从不需要被调用方命名（`&str` 的
+  `TrDecodable` 用 `gen_mcf2` 生成自己的命名 helper），而 GAT 没有默认关联类型，
+  一旦新增就会破坏所有既有 `TrDecoder` 实现（包括 `forward_to_decode_any!` 的
+  测试解码器）。RPITIT + 默认错误让「不支持 arena 字符串」的 decoder 保持可编译，
+  只有 `MpDecoder` / `JsonDecoder` 覆盖。该例外会写进 `TrDecoder` 的文档。
+- **为什么不是 `Visitor` 关联类型**：`visit_str` 没有取消令牌，visitor 内做异步
+  arena 分配只能拿 `NonCancellableToken` 驱动，sw-scope 的锁等待无法被取消；
+  `decode_string_as` 由格式 helper 实现，令牌自然可用。
+- **为什么不是 blanket `TrDecodable`**：与 derive 生成的 impl、`BumpBox` /
+  `&mut T` 引用版 impl 都可能重叠；显式入口把「哪些类型支持 arena 字符串」留在
+  具体 impl 上。
+
+#### 16.2.3 `TrArenaBytes`：`&'alloc str` / `&'alloc [u8]` 的底层能力
+
+`TrArena` 只承诺「值 → `Ref<T>`」，无法表达 `&'alloc [u8]`（`Ref<T>` 要求
+`T: Sized`，且 `BumpBox<[u8]>` 也不是裸切片）。新增独立能力 trait：
+
+```rust
+pub trait TrArenaBytes<'alloc>: TrArena<'alloc> {
+    type AllocBytesAsync<'a>: TrMayCancel<'a, MayCancelOutput = Result<&'alloc [u8], Self::Error>>
+    where
+        'alloc: 'a,
+        Self: 'alloc + 'a;
+
+    fn alloc_bytes_async<'a>(&'alloc self, src: &'a [u8]) -> Self::AllocBytesAsync<'a>
+    where
+        'alloc: 'a,
+        Self: 'alloc + 'a;
+}
+```
+
+- `BumpArena`：`Allocator::allocate(Layout::for_value(src))` + `ptr::copy_nonoverlapping`
+  + `slice::from_raw_parts`，返回 `&'alloc [u8]`；不借用锁守卫，内存随 arena 整体释放；
+- `NoArena` **不实现**：没有 arena 可借，`&str` / `&[u8]` 在无 arena 的 decoder 下
+  是编译错误，符合语义。
+
+`&'alloc str` 的 `TrStrFromUtf8` 实现调用 `alloc_bytes_async` +
+`str::from_utf8_unchecked`（输入本身是 `&str`，安全注释说明）。
+
+#### 16.2.4 `&'alloc [u8]` 走序列路径
+
+denco 的 `[u8]` / `Vec<u8>` 编码是**整数序列**，不是 MessagePack bin
+（`abs_denco/src/ser/impls_.rs` 的 `[T]: TrEncodable` 泛型实现）。因此
+`&'alloc [u8]` 的 `TrDecodable` 也走序列路径：
+
+1. 先用 `Vec<u8, Global>` 的既有实现解出 owned 字节（`Global` 通过
+   `TrAllocSource` 投影，不依赖 arena）；
+2. 再用 `TrArenaBytes::alloc_bytes_async` 复制进 arena。
+
+这样 MessagePack 与 JSON 的**往返**（用 denco 自己的编码器）都成立，且不新增
+`decode_bytes_as`。MessagePack bin 路径（serde_bytes 风格）不在本轮范围；将来需要
+时可按 `decode_string_as` 的同样模式加 `decode_bytes_as`。
+
+#### 16.2.5 `BumpString` 迁移
+
+- `impl TrStrFromUtf8 for BumpString<CA>`：`CA: TrAllocSource<'alloc, Alloc>`，
+  用 `CA::alloc_from(alloc)` + `extend_from_slice` 同步构造，`Ready` 返回；
+- `impl TrDecodable for BumpString<CA>`：改为
+  `de.decode_string_as::<BumpString<CA>>()`，删除旧的
+  `BumpStringVisitor` + `A: Allocator + Default` 实现；
+- 结果：`BumpString<&'alloc BumpArena>` 与 `BumpString<Global>` 都可解码，
+  前者共享 arena，后者与 `String` 等价但保留 allocator 参数。
+
+### 16.3 derive 生命周期参数
+
+- `model_.rs` 去掉 `reject_lifetimes_`；
+- **解码**侧把用户声明的所有生命周期参数**绑定到 `'alloc`**：生成
+  `impl<'de, 'alloc, T, ..., __DencoAlloc, ...> TrDecodable<...> for Foo<'alloc, T>`
+  （用户生命周期参数从 impl 泛型中移除，字段类型里的 `'a` 替换为 `'alloc`）。
+  需要一个基于 `syn::fold::Fold` 的替换器；`zyn` 已启用 syn 的 `fold` feature。
+- 解码侧新增 `value_ty_generics_()`（`<'alloc, #type_args, #const_args>`）：
+  值类型（`Foo<'alloc, T>`）与 visitor 结构体自身（`__Visitor<T>`）的泛型参数
+  不同，不能复用 `ty_generics_()`。
+- **字段约束**：对所有含用户生命周期的非跳过字段，在生成的 impl / helper / visitor
+  的 where 子句里加 `#field_ty: TrDecodable<'de, 'alloc, __DencoAlloc>`。这样
+  `&'alloc str` 的 `TrDecodable` 对 `__DencoAlloc: TrArenaBytes<'alloc>` 的要求会
+  从字段约束传播到使用点（BumpArena 满足，NoArena 不满足）。
+- **编码**侧保持用户生命周期不变（`Foo<'a>` 的 `impl<'a> TrEncodable for Foo<'a>`）；
+  内部 future 生命周期已叫 `'__denco_a`，不与用户冲突。
+- 限制：多个生命周期参数都会绑定到同一个 `'alloc`；含生命周期的递归类型
+  （如 `Node<'alloc> { next: Option<Box<Node<'alloc>>> }`）可能因字段约束触发
+  trait 求解循环，遇到时手写实现或改用 owned 字段，写进宏文档。
+
+### 16.4 实施顺序与验证
+
+按 `abs_denco` → `denco_bumpalo` → `mp_denco` → `json_denco` → `denco_macro`
+推进，每步 `cargo check`；最后 `cargo test/clippy --workspace --all-features`。
+
+验收：
+
+1. `denco_bumpalo/tests/` 新增借用型结构体用例：
+
+   ```rust
+   #[derive(TrEncodable, TrDecodable)]
+   struct Borrowed<'alloc> {
+       name: &'alloc str,
+       data: &'alloc [u8],
+   }
+   ```
+
+   MessagePack 与 JSON 都用 denco 编码器产生输入，再用
+   `MpDecoder::new_in` / `JsonDecoder::new_in` 解码为
+   `BumpBox<'alloc, Borrowed<'alloc>>`；断言字段内容，且输入缓冲离开作用域后仍可读；
+2. `Vec<u8, &'alloc BumpArena>` 与 `BumpString<&'alloc BumpArena>` 共享
+   decoder 的 arena（`allocated_bytes()` 增长）；
+3. `Vec<u8>` / `BumpString<Global>` 等旧形态保持可用；
+4. `denco_macro/tests/derive_.rs` 增加生命周期用例（含 `Option<&'alloc str>`）；
+5. 文档测试与 `format_use_imports.py --check` 通过。
+
+### 16.5 待确认
+
+1. `TrAllocSource` 这个投影 trait 的命名与「删除 `A: Allocator + Default`
+   容器解码 impl」的破坏性变更（`Vec<T, BumpArena>` → `Vec<T, &'alloc BumpArena>`）；
+2. `decode_string_as<S>` 采用 RPITIT + 默认错误实现（非 GAT），以及
+   `&'alloc [u8]` 走序列路径（不加 `decode_bytes_as`）。
+
+以上两点确认后即按 §16.1~§16.4 实施；如需保留 `Vec<T, BumpArena>` 这类
+「容器自有 arena」的旧形态，则目标 A 无法按「共享 decoder arena」的语义完成，
+需要另行讨论。
+
+## 17. 阶段 C 实施记录（2026-11-03）
+
+**结论**：§16 的两项 API 决策已获确认并按推荐方案实施。目标 A（容器共享
+decoder 的 arena）与目标 B（`&'alloc str` / `&'alloc [u8]` + derive 生命周期）
+均已完成；`cargo test/clippy --workspace --all-features` 全绿。sw-scope 继续暂缓。
+
+### 17.1 落地清单
+
+- `abs_denco`
+  - 新增 `de/alloc_source_.rs`：`TrAllocSource` + `Global` / `&'alloc Alloc`
+    两个实现；
+  - `de/arena_.rs`：新增 `TrArenaBytes`（`alloc_bytes_async -> &'alloc [u8]`）；
+  - 新增 `de/str_.rs`：`TrStrFromUtf8`、`String` / `&'alloc str` 实现、
+    `impl TrDecodable for &'alloc str`；
+  - 新增 `de/bytes_.rs`：`impl TrDecodable for &'alloc [u8]`（`Vec<u8>` +
+    `alloc_bytes_async`）；
+  - `de/decoder_.rs`：新增 `decode_string_as<S>`（RPITIT + 默认错误实现）；
+  - `de/sink_.rs` / `de/collect_.rs`：sink 增加 `type Alloc`，visitor 持有
+    allocator 实例；
+  - `de/impls_.rs` / `de/rc_.rs` / `de/alloc_collections_.rs` /
+    `de/std_collections_.rs`：容器 impl 改为 `CA: TrAllocSource<'alloc, Alloc>`，
+    删除全部解码侧 `A: Allocator + Default`；
+  - `de/mod.rs` / `lib.rs` / `Cargo.toml`：导出与文档更新。
+- `denco_bumpalo`
+  - `impl TrArenaBytes for BumpArena`（`Allocator::allocate` + `copy_nonoverlapping`
+    + `from_raw_parts`）；
+  - `impl TrStrFromUtf8 for BumpString<CA>`；`TrDecodable` 改为
+    `decode_string_as`，删除旧 visitor 与 `Default` 实现；
+  - 既有测试改为 `Vec<u8, &BumpArena>` / `BumpString<&BumpArena>`；
+  - 新增 `tests/lifetime_.rs`：`Borrowed<'alloc> { name_: &'alloc str,
+    data_: &'alloc [u8] }` 在 MessagePack 与 JSON 上解码为
+    `BumpBox<'alloc, Borrowed<'alloc>>`。
+- `mp_denco` / `json_denco`
+  - 各新增 `decode_string_as_async_` helper 并覆盖 `decode_string_as`；
+    短字符串走栈缓冲，长字符串先缓冲再交给 `TrStrFromUtf8`；
+- `denco_macro`
+  - `model_`：允许生命周期；新增 `bound_lifetimes_to_alloc_`（`syn::fold::Fold`
+    把用户生命周期替换为 `'alloc` 并从泛型参数中移除）、`ty_mentions_lifetime_`；
+  - `decode_`：值类型改用 `value_ty_generics_`（`'alloc` + type/const 参数）、
+    visitor 结构体只保留 type/const 参数、对所有借用字段补
+    `#ty: TrDecodable<'de, 'alloc, __DencoAlloc>` 约束；
+  - `encode_`：GAT 的类型实参补上用户生命周期；
+  - 测试：`LifetimeRecord<'alloc>` / `LifetimeEnum<'alloc>` 的编译与编码回归
+    （完整的 arena 解码由 `denco_bumpalo/tests/lifetime_.rs` 覆盖）。
+
+### 17.2 实施中的新发现
+
+1. **`gen_mcf2` 的 marker 参数会被关联类型名误导**：collect helper 的参数
+   `Alloc` 与字段类型 `C::Alloc` 重名，宏误判 `Alloc` 已在字段中出现，不生成
+   `PhantomData`，触发 E0392。把 helper 的泛型参数改名为 `Arena` 即可。
+2. **`BumpArena::alloc_bytes_async` 不能借用锁守卫**：`Bump` 的切片 API 把返回
+   值的寿命绑定在 `&self` 上，而 `&self` 来自互斥锁守卫。实现改为
+   `Allocator::allocate` + 裸指针写入 + `from_raw_parts`，寿命直接来自
+   `&'alloc self`。
+3. **derive 的 visitor 结构体不能带用户 `where` / 生命周期**：解码模型把用户
+   生命周期替换为 `'alloc` 后，原 `where` 子句会引用未声明的 `'alloc`。visitor
+   只保留 type/const 参数，约束全部由 `Visitor` impl 重新施加。
+4. **encode derive 的 GAT 需要显式补用户生命周期实参**：`gen_mcf2` 生成的
+   `OpAsync` 泛型顺序是「函数声明的生命周期 + future 生命周期」，无生命周期时
+   `<'__denco_a, '__denco_a, ...>` 恰好正确；一旦用户有生命周期，就会少传一个
+   实参（E0107）。修法是把 `#(#user_lts,)*` 放在第二个 `'__denco_a` 之前。
+5. **`T: 'de` 约束未造成阻塞**：`&'alloc str` 的字段约束要求
+   `'alloc: 'de`，验收路径上 `'de` 可被推断为不短于 `'alloc`；容器 impl 的
+   `T: 'de` 因此保留现状。
+
+### 17.3 公开 API 变化（已在 §16.5 确认）
+
+- 新增 `TrAllocSource`、`TrArenaBytes`、`TrStrFromUtf8`、
+  `TrDecoder::decode_string_as`；
+- 容器解码不再接受任意 `A: Allocator + Default`：`Vec<T, A>` 的 `A` 必须实现
+  `TrAllocSource<'alloc, Alloc>`。开箱形态是 `Global`、`&'alloc A`；自定义
+  allocator 若与 arena 无关，需要自行实现该 trait（`mp_denco/tests/containers_.rs`
+  的测试 allocator 已按此迁移）；
+- `Vec<T, BumpArena>` / `BumpString<BumpArena>` 改为
+  `Vec<T, &'alloc BumpArena>` / `BumpString<&'alloc BumpArena>`；
+- `TrDecoder` 的既有 GAT 与全部方法未变；`decode_string_as` 有默认实现，因此
+  既有 `TrDecoder` 实现（含 `forward_to_decode_any!` 的用户）无需改动。
+
+### 17.4 验证
+
+- `cargo test --workspace --all-features`：通过（含新增 `lifetime_` 3 个用例、
+  `denco_macro` 15 个用例）；
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`：通过；
+- 改动文件单独 `rustfmt --edition 2024`；未运行仓库级 `cargo fmt`。
+
+### 17.5 剩余
+
+1. sw-scope（`ScopeArena` + `Owning`；`TrArenaBytes` 的异步实现天然适配
+   `put_async`）；
+2. MessagePack bin 路径的 `decode_bytes_as`（本轮 `&'alloc [u8]` 走与编码器一致的
+   整数序列）；
+3. `TrStrFromUtf8` 的增量 builder（长字符串流式写入，当前为整段一次构造）；
+4. 上游 `mm_ptr` 推送后移除本地 patch。

@@ -1,5 +1,11 @@
 # 标准库容器支持：工作量、实施方案与扩展路径
 
+> **后续（2026-11-03）**：本文关于「解码必须用 `A::default()`」的结论已被
+> [`2026-11-02-alloc-lifetime-refactor.md`](2026-11-02-alloc-lifetime-refactor.md)
+> §16~§17 取代：容器 allocator 改由 `TrAllocSource` 从 decoder 的 arena 投影，
+> `Vec<T, Global>` 与 `Vec<T, &'alloc A>` 均可解码。本文保留作为历史记录。
+
+
 **当前结论（已实施）**：`abs_denco` 已通过可选的 feature 提供标准库容器实现：
 
 | feature | 增加的实现 |

@@ -30,10 +30,24 @@
 //! 需要把这三者都作为直接依赖。完整说明、示例与限制见 crate 根目录的
 //! `README.md`。
 //!
+//! # 生命周期参数
+//!
+//! 类型可以带生命周期参数（例如 `struct Foo<'alloc> { name: &'alloc str }`）。
+//! 解码侧把用户的全部生命周期参数**绑定到 decoder 的 arena 寿命 `'alloc`**，
+//! 生成 `impl<'de, 'alloc, ...> TrDecodable<..., __DencoAlloc> for Foo<'alloc>`；
+//! 编码侧保留用户生命周期（`impl<'a> TrEncodable for Foo<'a>`）。
+//!
+//! 限制：
+//!
+//! - 多个生命周期参数都会绑定到同一个 `'alloc`；
+//! - 含生命周期的递归类型（如 `Node<'alloc> { next: Option<Box<Node<'alloc>>> }`）
+//!   可能因字段上的 `TrDecodable` 约束触发 trait 求解循环，此时建议手写实现；
+//! - 借用输入缓冲的 `&'de str` 仍不支持，借用只针对 arena。
+//!
 //! # 已知限制
 //!
-//! 暂不支持带生命周期参数的类型、union、跳过元组字段、自定义 `default`
-//! 函数以及 `flatten` / `with` 等 serde 高级属性。
+//! 暂不支持 union、跳过元组字段、自定义 `default` 函数以及 `flatten` / `with`
+//! 等 serde 高级属性。
 
 use zyn::syn;
 
@@ -43,7 +57,7 @@ mod encode_;
 mod model_;
 mod names_;
 
-/// 为结构体或枚举派生 [`abs_denco::ser::TrEncodable`]。
+/// 为结构体或枚举派生 `abs_denco::ser::TrEncodable`。
 ///
 /// 支持 unit / newtype / tuple / named 结构体，以及 unit / newtype /
 /// tuple / struct 枚举变体。字段与变体可以通过 `#[denco(...)]` 重命名或跳过。
@@ -55,7 +69,7 @@ fn tr_encodable(#[zyn(input)] input: zyn::Extract<syn::DeriveInput>) -> zyn::Tok
     }
 }
 
-/// 为结构体或枚举派生 [`abs_denco::de::TrDecodable`]。
+/// 为结构体或枚举派生 `abs_denco::de::TrDecodable`。
 ///
 /// 解码同时接受命名字段映射与位置数组两种表示；未知字段会报错，缺失字段
 /// 可通过 `Option<T>` 或 `#[denco(default)]` 补齐。

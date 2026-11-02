@@ -2,11 +2,14 @@
 //!
 //! 本 crate 只负责把 bumpalo 暴露成 [`abs_denco`] 需要的接口：
 //!
-//! - [`BumpArena`] 同时实现 [`core::alloc::Allocator`]（供 `Vec<T, BumpArena>`
-//!   这类容器使用）与 [`abs_denco::de::TrArena`]（供引用版解码使用，
-//!   `Ref<T> = &'alloc mut T`）；
+//! - [`BumpArena`] 同时实现 [`core::alloc::Allocator`]（供
+//!   `Vec<T, &'alloc BumpArena>` 这类借用 arena 的容器使用）、
+//!   [`abs_denco::de::TrArena`]（供引用版解码使用，`Ref<T> = BumpBox<'alloc, T>`）
+//!   与 [`abs_denco::de::TrArenaBytes`]（供 `&'alloc str` / `&'alloc [u8]`）；
 //! - [`BumpString`] 是 `Vec<u8, A>` 的薄封装，用 `Allocator` 参数补上
-//!   `String` 缺少的 allocator 能力。
+//!   `String` 缺少的 allocator 能力；通过
+//!   [`abs_denco::de::TrStrFromUtf8`] 解码，`BumpString<&'alloc BumpArena>`
+//!   因此与 decoder 共享 arena。
 //!
 //! 它不依赖任何具体数据格式：`MpDecoder` / `JsonDecoder` 对 allocator 泛型化
 //! 之后，直接把 `&BumpArena` 传给解码器即可。
@@ -18,29 +21,31 @@ extern crate alloc;
 
 use core::{
     alloc::{AllocError, Allocator, Layout},
+    convert::Infallible,
     fmt, future,
     ops::{Deref, DerefMut},
     ptr::NonNull,
-    str,
+    slice, str,
 };
 
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use abs_denco::{
     TrBoxed, TrUnique,
-    de::{Error, TrArena, TrDecodable, TrDecoder, Visitor},
+    de::{Error, TrAllocSource, TrArena, TrArenaBytes, TrDecodable, TrDecoder, TrStrFromUtf8},
 };
 use atomic_sync::mutex::preemptive::SpinningMutexOwned;
 use bumpalo::{Bump, boxed::Box as BumpaloBox};
 use gen_mcf2::gen_may_cancel_future;
 
-/// 基于 bumpalo 的 [`Allocator`] 与 [`TrArena`]，每次 [`Default::default`]
-/// 创建一个独立 arena。
+/// 基于 bumpalo 的 [`Allocator`]、[`TrArena`] 与 [`TrArenaBytes`]，每次
+/// [`Default::default`] 创建一个独立 arena。
 ///
 /// 它**不实现 `Clone`**：clone 一个 arena 没有共享语义。反序列化过程中需要
-/// 「借用」同一个 arena 时，通过 `&BumpArena` 传给解码器（`MpDecoder::new_in`
-/// 等），而不是复制。
+/// 「借用」同一个 arena 时，通过 `&'alloc BumpArena` 传给解码器
+/// （`MpDecoder::new_in` 等），容器与 `BumpBox` / `BumpString` 因此共享它，
+/// 而不是各自新建 arena。
 ///
 /// # 语义
 ///
@@ -129,7 +134,7 @@ unsafe impl Allocator for BumpArena {
 ///
 /// 内部是 [`bumpalo::boxed::Box`]：内存属于 arena，句柄被 drop 时运行 `T` 的
 /// 析构函数但不归还内存。它实现 [`Deref`] / [`DerefMut`]，并适配
-/// [`abs_mm::res_man::TrBoxed`] / [`abs_mm::res_man::TrUnique`]。
+/// [`TrBoxed`] / [`TrUnique`]。
 pub struct BumpBox<'alloc, T: ?Sized>(BumpaloBox<'alloc, T>);
 
 impl<'alloc, T: ?Sized> BumpBox<'alloc, T> {
@@ -221,6 +226,36 @@ impl<'alloc> TrArena<'alloc> for BumpArena {
     }
 }
 
+impl<'alloc> TrArenaBytes<'alloc> for BumpArena {
+    type AllocBytesAsync<'a>
+        = future::Ready<Result<&'alloc [u8], BumpArenaError>>
+    where
+        'alloc: 'a,
+        Self: 'alloc + 'a;
+
+    fn alloc_bytes_async<'a>(&'alloc self, src: &'a [u8]) -> Self::AllocBytesAsync<'a>
+    where
+        'alloc: 'a,
+        Self: 'alloc + 'a,
+    {
+        let result = match self.allocate(Layout::for_value(src)) {
+            Result::Ok(block) => {
+                let ptr = block.as_ptr().cast::<u8>();
+                // SAFETY: `allocate` 返回按 `u8` 对齐、长度不小于 `src.len()` 的
+                // 未初始化块；这里只写入一次，之后由 arena 持有到 `BumpArena`
+                // 析构。切片只以共享引用交出，不会与其它分配重叠。
+                unsafe {
+                    core::ptr::copy_nonoverlapping(src.as_ptr(), ptr, src.len());
+                    let bytes: &'alloc [u8] = slice::from_raw_parts(ptr, src.len());
+                    Result::Ok(bytes)
+                }
+            }
+            Result::Err(_) => Result::Err(BumpArenaError),
+        };
+        future::ready(result)
+    }
+}
+
 /// 把值版解码结果放进 bump arena，返回 [`BumpBox`] 句柄。
 #[gen_may_cancel_future(DecodeBumpBoxOp, pub, new(pub))]
 async fn decode_bump_box_async_<'de, 'alloc, 'a, T, D, C>(
@@ -277,12 +312,11 @@ where
 /// `Vec<u8, A>` 包成字符串，构造路径只接受 `&str` / `String`，因此内容始终是
 /// 合法 UTF-8。
 ///
-/// # 注意
+/// # 解码
 ///
-/// - 与 `String` 一样，`A` 必须由调用方提供；解码时用 [`Default::default`]
-///   创建一个独立 arena（`BumpString<BumpArena>` 可直接使用）。
-/// - 若要让字符串借用 decoder 的 arena（`BumpString<'a>` 形态），需要
-///   `abs_denco` 提供 allocator 注入能力，见 `dev-notes` 中的限制分析。
+/// 通过 [`TrStrFromUtf8`] 构造：`BumpString<&'alloc BumpArena>` 把内容复制进
+/// decoder 的同一个 arena；`BumpString<Global>` 与普通 `String` 一样使用全局
+/// 分配器。解码路径不再用 `Default` 新建 arena。
 pub struct BumpString<A: Allocator> {
     bytes_: Vec<u8, A>,
 }
@@ -340,82 +374,61 @@ impl<A: Allocator> fmt::Display for BumpString<A> {
     }
 }
 
-struct BumpStringVisitor<A: Allocator> {
-    value_: BumpString<A>,
-}
-
-impl<'de, 'alloc, Alloc, A> Visitor<'de, 'alloc, Alloc> for BumpStringVisitor<A>
+impl<'alloc, Alloc, CA> TrStrFromUtf8<'alloc, Alloc> for BumpString<CA>
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    A: Allocator + Default,
+    CA: TrAllocSource<'alloc, Alloc>,
 {
-    type Value = BumpString<A>;
+    type Error = Infallible;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a string")
-    }
-
-    fn visit_str<'a, E>(
-        mut self,
-        value: &'a str,
-    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
+    type FromUtf8Async<'a>
+        = future::Ready<Result<Self, Infallible>>
     where
-        Self: 'a,
-        Self::Value: 'a,
-        E: Error + 'a,
-    {
-        self.value_.bytes_.extend_from_slice(value.as_bytes());
-        future::ready(Result::Ok(self.value_))
-    }
+        'alloc: 'a,
+        Alloc: 'alloc + 'a,
+        Self: 'a;
 
-    fn visit_string<'a, E>(
-        mut self,
-        value: String,
-    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
+    fn from_utf8_async<'a>(alloc: &'alloc Alloc, value: &'a str) -> Self::FromUtf8Async<'a>
     where
+        'alloc: 'a,
+        Alloc: 'alloc + 'a,
         Self: 'a,
-        Self::Value: 'a,
-        E: Error + 'a,
-        'de: 'a,
     {
-        self.value_.bytes_.extend_from_slice(value.as_bytes());
-        future::ready(Result::Ok(self.value_))
+        let mut out = BumpString::new_in(CA::alloc_from(alloc));
+        out.bytes_.extend_from_slice(value.as_bytes());
+        future::ready(Result::Ok(out))
     }
 }
 
 #[gen_may_cancel_future(DecodeBumpStringOp, pub, new(pub))]
-async fn decode_bump_string_async_<'alloc, 'de, 'a, Alloc, A, D, C>(
+async fn decode_bump_string_async_<'de, 'alloc, 'a, Alloc, CA, D, C>(
     de: D,
     cancel: C,
-) -> Result<BumpString<A>, D::Error>
+) -> Result<BumpString<CA>, D::Error>
 where
     'de: 'a,
     'alloc: 'a,
     Alloc: TrArena<'alloc> + 'alloc,
-    A: Allocator + Default + 'a,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
     D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
-    de.decode_string(BumpStringVisitor {
-        value_: BumpString::default(),
-    })
-    .may_cancel_with(cancel)
-    .await
+    de.decode_string_as::<BumpString<CA>>()
+        .may_cancel_with(cancel)
+        .await
 }
 
-impl<'de, 'alloc, Alloc, A> TrDecodable<'de, 'alloc, Alloc> for BumpString<A>
+impl<'de, 'alloc, Alloc, CA> TrDecodable<'de, 'alloc, Alloc> for BumpString<CA>
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    A: Allocator + Default + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeBumpStringOpAsync<'alloc, 'de, 'a, 'a, Alloc, A, D>
+        = DecodeBumpStringOpAsync<'de, 'alloc, 'a, 'a, Alloc, CA, D>
     where
         'de: 'a,
         'alloc: 'a,
-        Alloc: TrArena<'alloc> + 'alloc,
-        A: Allocator + Default + 'a,
         D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
@@ -424,12 +437,10 @@ where
     where
         'de: 'a,
         'alloc: 'a,
-        Alloc: TrArena<'alloc> + 'alloc,
-        A: Allocator + Default + 'a,
         D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        DecodeBumpStringOpAsync::<'alloc, 'de, 'a, 'a, Alloc, A, D>::new(de)
+        DecodeBumpStringOpAsync::new(de)
     }
 }

@@ -3,7 +3,7 @@
 use zyn::{
     Span, format_ident,
     syn::{
-        self, Data, DeriveInput, Fields, Ident, Index, Member, Type,
+        self, Data, DeriveInput, Fields, GenericParam, Ident, Index, Member, Type, fold::Fold,
         spanned::Spanned,
     },
 };
@@ -20,6 +20,8 @@ pub(crate) struct TypeModel {
     pub(crate) generics_: syn::Generics,
     pub(crate) rename_: String,
     pub(crate) transparent_: bool,
+    /// 解码模型是否已把用户生命周期绑定到 `'alloc`（用于生成值类型泛型）。
+    pub(crate) lifetime_bound_: bool,
     pub(crate) kind_: Kind,
 }
 
@@ -94,10 +96,8 @@ impl TypeModel {
     }
 }
 
-
 pub(crate) fn parse_(input: &DeriveInput) -> syn::Result<TypeModel> {
     let attrs = attrs_::parse_container_attrs_(&input.attrs)?;
-    reject_lifetimes_(&input.generics)?;
 
     let rename = attrs
         .rename
@@ -105,7 +105,8 @@ pub(crate) fn parse_(input: &DeriveInput) -> syn::Result<TypeModel> {
         .unwrap_or_else(|| input.ident.to_string());
     let kind = parse_kind_(input, &attrs)?;
 
-    if attrs.transparent && !matches!(&kind, Kind::Struct(FieldsModel::Unnamed(fields)) if fields.len() == 1)
+    if attrs.transparent
+        && !matches!(&kind, Kind::Struct(FieldsModel::Unnamed(fields)) if fields.len() == 1)
     {
         return Err(syn::Error::new_spanned(
             &input.ident,
@@ -119,18 +120,104 @@ pub(crate) fn parse_(input: &DeriveInput) -> syn::Result<TypeModel> {
         generics_: input.generics.clone(),
         rename_: rename,
         transparent_: attrs.transparent,
+        lifetime_bound_: false,
         kind_: kind,
     })
 }
 
-fn reject_lifetimes_(generics: &syn::Generics) -> syn::Result<()> {
-    if let Some(lifetime) = generics.lifetimes().next() {
-        return Err(syn::Error::new(
-            lifetime.span(),
-            "denco derive 暂不支持带生命周期参数的类型",
-        ));
+/// 生成解码专用的模型：把所有用户生命周期参数绑定到 `'alloc`。
+///
+/// 解码结果可以借用 decoder 的 arena（`'alloc`），而用户写的 `Foo<'a>` 里的
+/// `'a` 在解码侧必须就是这个 arena 寿命。这里把所有用户生命周期替换为
+/// `'alloc`，并从泛型参数列表里移除生命周期参数；类型参数与 const 参数原样
+/// 保留。编码侧仍使用原始模型（`Foo<'a>` 的 `impl<'a> TrEncodable`）。
+pub(crate) fn bound_lifetimes_to_alloc_(model: &TypeModel) -> TypeModel {
+    let names: Vec<String> = model
+        .generics_
+        .lifetimes()
+        .map(|param| param.lifetime.ident.to_string())
+        .collect();
+    if names.is_empty() {
+        return model.clone();
     }
-    Ok(())
+
+    let mut folder = BindToAlloc_ {
+        names_: names,
+        alloc_: syn::Lifetime::new("'alloc", Span::call_site()),
+    };
+    let mut out = model.clone();
+    match &mut out.kind_ {
+        Kind::Struct(fields) => fold_fields_(fields, &mut folder),
+        Kind::Enum(variants) => {
+            for variant in variants {
+                fold_fields_(&mut variant.fields_, &mut folder);
+            }
+        }
+    }
+    out.generics_ = folder.fold_generics(out.generics_.clone());
+    out.generics_.params = out
+        .generics_
+        .params
+        .iter()
+        .filter(|param| !matches!(param, GenericParam::Lifetime(_)))
+        .cloned()
+        .collect();
+    out.lifetime_bound_ = true;
+    out
+}
+
+/// 判断类型里是否出现指定生命周期（用于给借用型字段补 `TrDecodable` 约束）。
+pub(crate) fn ty_mentions_lifetime_(ty: &Type, name: &str) -> bool {
+    let mut finder = LifetimeFinder_ {
+        name_: name,
+        found_: false,
+    };
+    let _ = finder.fold_type(ty.clone());
+    finder.found_
+}
+
+struct BindToAlloc_ {
+    names_: Vec<String>,
+    alloc_: syn::Lifetime,
+}
+
+impl Fold for BindToAlloc_ {
+    fn fold_lifetime(&mut self, lifetime: syn::Lifetime) -> syn::Lifetime {
+        if self
+            .names_
+            .iter()
+            .any(|name| lifetime.ident == name.as_str())
+        {
+            self.alloc_.clone()
+        } else {
+            lifetime
+        }
+    }
+}
+
+struct LifetimeFinder_<'a> {
+    name_: &'a str,
+    found_: bool,
+}
+
+impl Fold for LifetimeFinder_<'_> {
+    fn fold_lifetime(&mut self, lifetime: syn::Lifetime) -> syn::Lifetime {
+        if lifetime.ident == self.name_ {
+            self.found_ = true;
+        }
+        lifetime
+    }
+}
+
+fn fold_fields_(fields: &mut FieldsModel, folder: &mut impl Fold) {
+    match fields {
+        FieldsModel::Unit => {}
+        FieldsModel::Named(items) | FieldsModel::Unnamed(items) => {
+            for field in items {
+                field.ty_ = folder.fold_type(field.ty_.clone());
+            }
+        }
+    }
 }
 
 fn parse_kind_(input: &DeriveInput, attrs: &ContainerAttrs) -> syn::Result<Kind> {
@@ -197,7 +284,10 @@ fn parse_field_(
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_else(|| index.to_string());
-    let base_name = base_name.strip_prefix("r#").unwrap_or(&base_name).to_owned();
+    let base_name = base_name
+        .strip_prefix("r#")
+        .unwrap_or(&base_name)
+        .to_owned();
     let name = match &attrs.rename {
         Some(name) => name.clone(),
         None => match rename_all {
@@ -205,9 +295,7 @@ fn parse_field_(
             None => base_name,
         },
     };
-    let binding = ident
-        .clone()
-        .unwrap_or_else(|| format_ident!("f{index}"));
+    let binding = ident.clone().unwrap_or_else(|| format_ident!("f{index}"));
     let member = match &ident {
         Some(ident) => Member::Named(ident.clone()),
         None => Member::Unnamed(Index {
@@ -243,11 +331,7 @@ fn parse_field_(
     })
 }
 
-fn apply_rename_all_(
-    attrs: &ContainerAttrs,
-    ident: &Ident,
-    span: Span,
-) -> syn::Result<String> {
+fn apply_rename_all_(attrs: &ContainerAttrs, ident: &Ident, span: Span) -> syn::Result<String> {
     let base = ident.to_string();
     let base = base.strip_prefix("r#").unwrap_or(&base);
     match attrs.rename_all.as_deref() {

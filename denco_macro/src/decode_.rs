@@ -9,6 +9,8 @@ use zyn::{
 use crate::model_::{FieldModel, FieldsModel, Kind, TypeModel, VariantModel};
 
 pub(crate) fn expand_(model: &TypeModel) -> TokenStream {
+    let model = crate::model_::bound_lifetimes_to_alloc_(model);
+    let model = &model;
     let ident = &model.ident_;
     let type_name = ident.to_string();
     let type_name = type_name.trim_start_matches("r#");
@@ -147,13 +149,13 @@ fn decode_newtype_struct_(model: &TypeModel, prefix: &Ident, fields: &[FieldMode
     generics.params.push(parse_quote!(__DencoCancel));
     add_decode_bounds_(&mut generics, model, quote!(__DencoDecoder));
     let (fn_generics, _, where_clause) = generics.split_for_impl();
-    let ty_generics = model.ty_generics_();
+    let value_generics = value_ty_generics_(model);
     let type_args = type_args_(model);
     let const_args = const_args_(model);
 
     let newtype_fn_def = quote! {
         #[gen_mcf2::gen_may_cancel_future(#newtype_op)]
-        async fn #newtype_fn #fn_generics (de: __DencoDecoder, cancel: __DencoCancel) -> ::core::result::Result<#ident #ty_generics, __DencoDecoder::Error>
+        async fn #newtype_fn #fn_generics (de: __DencoDecoder, cancel: __DencoCancel) -> ::core::result::Result<#ident #value_generics, __DencoDecoder::Error>
         #where_clause
         {
             let value = <#inner_ty as abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc>>::decode_async(de)
@@ -446,9 +448,10 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
         where_clause
             .predicates
             .push(parse_quote!(__DencoCancel: abs_cancel::TrCancellationToken));
+        add_field_bounds_(where_clause, model);
     }
     let (fn_generics, _, where_clause) = generics.split_for_impl();
-    let ty_generics = model.ty_generics_();
+    let value_generics = value_ty_generics_(model);
     let type_args = type_args_(model);
     let const_args = const_args_(model);
     let dispatch_fn_def = quote! {
@@ -456,7 +459,7 @@ fn decode_enum_(model: &TypeModel, prefix: &Ident, variants: &[VariantModel]) ->
         async fn #dispatch_fn #fn_generics (
             data: __DencoAccess,
             cancel: __DencoCancel,
-        ) -> ::core::result::Result<#enum_ident #ty_generics, __DencoAccess::Error>
+        ) -> ::core::result::Result<#enum_ident #value_generics, __DencoAccess::Error>
         #where_clause
         {
             let (variant, access) = data
@@ -530,7 +533,7 @@ fn decode_entry_(
     _visitor_ident: &Ident,
 ) -> Parts {
     let ident = &model.ident_;
-    let ty_generics = model.ty_generics_();
+    let value_generics = value_ty_generics_(model);
     let type_params = model.type_params_();
     let type_args = type_args_(model);
     let const_args = const_args_(model);
@@ -556,7 +559,7 @@ fn decode_entry_(
         #vis async fn #op_fn #fn_generics (
             de: __DencoDecoder,
             cancel: __DencoCancel,
-        ) -> ::core::result::Result<#ident #ty_generics, __DencoDecoder::Error>
+        ) -> ::core::result::Result<#ident #value_generics, __DencoDecoder::Error>
         #where_clause
         {
             #decode_call
@@ -584,10 +587,11 @@ fn decode_entry_(
                 }
             }
         }
+        add_field_bounds_(where_clause, model);
     }
     let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
     let impl_ = quote! {
-        impl #impl_generics abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> for #ident #ty_generics #where_clause {
+        impl #impl_generics abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> for #ident #value_generics #where_clause {
             type DecodeAsync<'a, __DencoDecoder>
                 = #op_async<'de, 'alloc, 'a, 'a, __DencoAlloc, #(#type_args,)* __DencoDecoder, #(#const_args,)*>
             where
@@ -641,16 +645,33 @@ fn add_decode_bounds_(generics: &mut syn::Generics, model: &TypeModel, decoder: 
     where_clause
         .predicates
         .push(parse_quote!(__DencoCancel: abs_cancel::TrCancellationToken));
+    add_field_bounds_(where_clause, model);
 }
 
 fn visitor_def_(model: &TypeModel, visitor_ident: &Ident) -> TokenStream {
-    let generics = model.generics_.clone();
+    // visitor 只是类型标记，不保存数据；用户生命周期已绑定到 `'alloc`，
+    // 不能出现在结构体定义里，因此这里只保留类型与 const 参数，且不复制
+    // 用户 where 子句（约束由 Visitor impl 重新施加）。
     let type_params = model.type_params_();
-    let (struct_generics, _, where_clause) = generics.split_for_impl();
-    quote! {
-        struct #visitor_ident #struct_generics (
-            ::core::marker::PhantomData<(#(#type_params,)*)>
-        ) #where_clause;
+    let const_params: Vec<TokenStream> = model
+        .generics_
+        .const_params()
+        .map(|param| {
+            let ident = &param.ident;
+            let ty = &param.ty;
+            quote! { const #ident: #ty }
+        })
+        .collect();
+    if type_params.is_empty() && const_params.is_empty() {
+        quote! {
+            struct #visitor_ident(::core::marker::PhantomData<()>);
+        }
+    } else {
+        quote! {
+            struct #visitor_ident < #(#type_params,)* #(#const_params,)* > (
+                ::core::marker::PhantomData<(#(#type_params,)*)>
+            );
+        }
     }
 }
 
@@ -678,14 +699,16 @@ fn visitor_impl_(model: &TypeModel, visitor_ident: &Ident, methods: TokenStream)
                 parse_quote!(#param: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc> + 'de),
             );
         }
+        add_field_bounds_(where_clause, model);
     }
     let (impl_generics, _, where_clause) = generics.split_for_impl();
-    let ty_generics = model.ty_generics_();
+    let visitor_generics = model.ty_generics_();
+    let value_generics = value_ty_generics_(model);
     let ident = &model.ident_;
     let expecting = &model.rename_;
     quote! {
-        impl #impl_generics abs_denco::de::Visitor<'de, 'alloc, __DencoAlloc> for #visitor_ident #ty_generics #where_clause {
-            type Value = #ident #ty_generics;
+        impl #impl_generics abs_denco::de::Visitor<'de, 'alloc, __DencoAlloc> for #visitor_ident #visitor_generics #where_clause {
+            type Value = #ident #value_generics;
 
             fn expecting(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 formatter.write_str(#expecting)
@@ -872,9 +895,10 @@ fn map_helper_(
                     .push(parse_quote!(#ty: ::core::default::Default));
             }
         }
+        add_field_bounds_for_(where_clause, fields);
     }
     let (fn_generics, _, where_clause) = generics.split_for_impl();
-    let ty_generics = model.ty_generics_();
+    let value_generics = value_ty_generics_(model);
     let target_ty = &model.ident_;
     let type_args = type_args_(model);
     let const_args = const_args_(model);
@@ -966,7 +990,7 @@ fn map_helper_(
         async fn #map_fn #fn_generics (
             mut map: __DencoAccess,
             cancel: __DencoCancel,
-        ) -> ::core::result::Result<#target_ty #ty_generics, __DencoAccess::Error>
+        ) -> ::core::result::Result<#target_ty #value_generics, __DencoAccess::Error>
         #where_clause
         {
             #(#init)*
@@ -1049,9 +1073,10 @@ fn seq_helper_(
                     .push(parse_quote!(#ty: ::core::default::Default));
             }
         }
+        add_field_bounds_for_(where_clause, fields);
     }
     let (fn_generics, _, where_clause) = generics.split_for_impl();
-    let ty_generics = model.ty_generics_();
+    let value_generics = value_ty_generics_(model);
     let target_ty = &model.ident_;
     let type_args = type_args_(model);
     let const_args = const_args_(model);
@@ -1127,7 +1152,7 @@ fn seq_helper_(
         async fn #seq_fn #fn_generics (
             mut seq: __DencoAccess,
             cancel: __DencoCancel,
-        ) -> ::core::result::Result<#target_ty #ty_generics, __DencoAccess::Error>
+        ) -> ::core::result::Result<#target_ty #value_generics, __DencoAccess::Error>
         #where_clause
         {
             #(#reads)*
@@ -1292,4 +1317,75 @@ fn visitor_args_(model: &TypeModel) -> Vec<Ident> {
             syn::GenericParam::Lifetime(_) => None,
         })
         .collect()
+}
+
+/// 值类型（`Foo<'alloc, T, N>`）的泛型实参。
+///
+/// visitor 结构体自身只带类型/const 参数（生命周期已绑定到 `'alloc`），
+/// 因此不能复用 `model.ty_generics_()`。
+fn value_ty_generics_(model: &TypeModel) -> TokenStream {
+    let mut params: Vec<TokenStream> = Vec::new();
+    if model.lifetime_bound_ {
+        params.push(quote!('alloc));
+    }
+    for ident in type_args_(model) {
+        params.push(quote!(#ident));
+    }
+    for ident in const_args_(model) {
+        params.push(quote!(#ident));
+    }
+    if params.is_empty() {
+        quote!()
+    } else {
+        quote!(<#(#params),*>)
+    }
+}
+
+/// 给整个类型里所有借用 arena 的字段补 `TrDecodable` 约束。
+fn add_field_bounds_(where_clause: &mut syn::WhereClause, model: &TypeModel) {
+    let mut types = Vec::new();
+    collect_field_types_(&model.kind_, &mut types);
+    push_field_bounds_(where_clause, &types);
+}
+
+/// 给指定字段补 `TrDecodable` 约束（枚举的单个变体使用）。
+fn add_field_bounds_for_(where_clause: &mut syn::WhereClause, fields: &[FieldModel]) {
+    let types: Vec<syn::Type> = fields
+        .iter()
+        .filter(|field| !field.skip_decoding_ && !field.is_phantom_)
+        .map(|field| field.ty_.clone())
+        .collect();
+    push_field_bounds_(where_clause, &types);
+}
+
+fn push_field_bounds_(where_clause: &mut syn::WhereClause, types: &[syn::Type]) {
+    for ty in types {
+        if crate::model_::ty_mentions_lifetime_(ty, "alloc") {
+            where_clause
+                .predicates
+                .push(parse_quote!(#ty: abs_denco::de::TrDecodable<'de, 'alloc, __DencoAlloc>));
+        }
+    }
+}
+
+fn collect_field_types_(kind: &Kind, out: &mut Vec<syn::Type>) {
+    match kind {
+        Kind::Struct(fields) => collect_fields_(fields, out),
+        Kind::Enum(variants) => {
+            for variant in variants {
+                collect_fields_(&variant.fields_, out);
+            }
+        }
+    }
+}
+
+fn collect_fields_(fields: &FieldsModel, out: &mut Vec<syn::Type>) {
+    if let FieldsModel::Named(items) | FieldsModel::Unnamed(items) = fields {
+        for field in items {
+            if field.skip_decoding_ || field.is_phantom_ {
+                continue;
+            }
+            out.push(field.ty_.clone());
+        }
+    }
 }

@@ -11,8 +11,8 @@ use abs_buff::{Demand, TrBuffRead, buffer::TrBuffSegmRef};
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use abs_denco::{
     de::{
-        EnumAccess, MapAccess, NoArena, SeqAccess, TrArena, TrDecodableSeed, TrDecoder,
-        VariantAccess, Visitor,
+        EnumAccess, Error, MapAccess, NoArena, SeqAccess, TrArena, TrDecodableSeed, TrDecoder,
+        TrStrFromUtf8, VariantAccess, Visitor,
     },
     forward_to_decode_any,
 };
@@ -1288,6 +1288,62 @@ where
     }
 }
 
+/// 读取一个字符串并交给 `S` 构造；`S` 可以把内容复制进 decoder 的 arena。
+#[gen_may_cancel_future(DecodeStringAsOp, pub, new(pub))]
+async fn decode_string_as_async_<'de, 'alloc, 'r, 'a, A, R, S, C>(
+    mut de: MpDecoder<'r, 'alloc, R, A>,
+    cancel: C,
+) -> Result<S, MpError>
+where
+    A: TrArena<'alloc> + 'alloc,
+    'de: 'a,
+    'alloc: 'a,
+    'r: 'a,
+    R: TrBuffRead<u8> + 'r + 'a,
+    S: TrStrFromUtf8<'alloc, A> + 'a,
+    C: TrCancellationToken,
+{
+    if cancel.is_cancelled() {
+        return Err(MpError::new("operation cancelled"));
+    }
+    let tag = read_tag_async_(&mut de, cancel.child_token()).await?;
+    if !is_str_marker_(tag) {
+        return Err(MpError::new("expected a MessagePack string"));
+    }
+    let len = read_str_len_from_tag_async_(&mut de, tag, cancel.child_token()).await?;
+    let arena = de.allocator();
+    if len == 0 {
+        return S::from_utf8_async(arena, "")
+            .may_cancel_with(cancel)
+            .await
+            .map_err(<MpError as Error>::custom);
+    }
+    if len <= STACK_BUF_ {
+        let mut buf = [0u8; STACK_BUF_];
+        read_exact_async_(de.reader_, &mut buf[..len], cancel.child_token()).await?;
+        let text = str::from_utf8(&buf[..len]).map_err(|_| MpError::new("invalid UTF-8 string"))?;
+        return S::from_utf8_async(arena, text)
+            .may_cancel_with(cancel)
+            .await
+            .map_err(<MpError as Error>::custom);
+    }
+
+    let mut bytes = Vec::with_capacity(len);
+    let mut remaining = len;
+    while remaining > 0 {
+        let chunk = core::cmp::min(remaining, STACK_BUF_);
+        let mut buf = [0u8; STACK_BUF_];
+        read_exact_async_(de.reader_, &mut buf[..chunk], cancel.child_token()).await?;
+        bytes.extend_from_slice(&buf[..chunk]);
+        remaining -= chunk;
+    }
+    let text = String::from_utf8(bytes).map_err(|_| MpError::new("invalid UTF-8 string"))?;
+    S::from_utf8_async(arena, text.as_str())
+        .may_cancel_with(cancel)
+        .await
+        .map_err(<MpError as Error>::custom)
+}
+
 impl<'de, 'alloc, 'r, R, A> TrDecoder<'de, 'alloc, A> for MpDecoder<'r, 'alloc, R, A>
 where
     A: TrArena<'alloc> + 'alloc,
@@ -1499,5 +1555,17 @@ where
         decode_struct => DecodeStructAsync(name: &'static str, fields: &'static [&'static str]),
         decode_identifier => DecodeIdentifierAsync,
         decode_ignored_any => DecodeIgnoredAnyAsync,
+    }
+    fn decode_string_as<'a, S>(
+        self,
+    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<S, Self::Error>>
+    where
+        'de: 'a,
+        'alloc: 'a,
+        S: TrStrFromUtf8<'alloc, A> + 'a,
+        Self: 'a,
+        Self::Error: 'a,
+    {
+        DecodeStringAsOpAsync::<'de, 'alloc, 'r, 'a, 'a, A, R, S>::new(self)
     }
 }
