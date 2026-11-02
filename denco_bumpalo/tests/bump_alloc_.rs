@@ -2,6 +2,8 @@
 //!
 //! Integration tests for `BumpAlloc` and `BumpString`.
 
+#![feature(impl_trait_in_assoc_type)]
+
 use core::{
     future::Future,
     task::{Context, Poll, Waker},
@@ -9,7 +11,8 @@ use core::{
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
 use abs_denco::de::TrDecodable;
-use mp_denco::{BumpAlloc, BumpString, MpDecoder};
+use denco_bumpalo::{BumpAlloc, BumpString};
+use mp_denco::MpDecoder;
 
 /// 立即完成的测试执行器。
 fn block_on_<F: Future>(future: F) -> F::Output {
@@ -41,8 +44,7 @@ fn decode_vec_with_bump_alloc() {
     let mut input: &[u8] = &bytes;
     let decoder = MpDecoder::new(&mut input);
     let value: Vec<u8, BumpAlloc> = block_on_(
-        Vec::<u8, BumpAlloc>::decode_async(decoder)
-            .may_cancel_with(NonCancellableToken::new()),
+        Vec::<u8, BumpAlloc>::decode_async(decoder).may_cancel_with(NonCancellableToken::new()),
     )
     .expect("解码应当成功");
     assert_eq!(&*value, &[1u8, 2, 3]);
@@ -62,10 +64,44 @@ fn decode_bump_string() {
     let mut input: &[u8] = &bytes;
     let decoder = MpDecoder::new(&mut input);
     let value: BumpString<BumpAlloc> = block_on_(
-        BumpString::<BumpAlloc>::decode_async(decoder)
-            .may_cancel_with(NonCancellableToken::new()),
+        BumpString::<BumpAlloc>::decode_async(decoder).may_cancel_with(NonCancellableToken::new()),
     )
     .expect("解码应当成功");
     assert_eq!(&*value, "hello");
     assert_eq!(value.as_bytes_(), b"hello");
+}
+
+/// 测试目标：引用版解码把值直接放进 bump arena，返回 `&'alloc mut Point`。
+/// Test goal: the reference version places the value in the bump arena and
+/// returns `&'alloc mut Point`.
+///
+/// - 手段：用 MessagePack 数组 `[0x92, 0x01, 0x02]` 解码 `&mut Point`，
+///   decoder 由 `MpDecoder::new_in(&mut input, &bump)` 构造。
+///   / How: decode `&mut Point` from the MessagePack array `[0x92, 0x01, 0x02]`
+///   with a decoder built by `MpDecoder::new_in(&mut input, &bump)`.
+/// - 判断：返回的引用字段为 `1` / `2`，且 arena 的 `allocated_bytes()` 增长，
+///   说明 `BumpAlloc` 的 `TrArena::Ref<T> = &'alloc mut T` 路径成立。
+///   / What: the referenced fields are `1` / `2` and the arena's
+///   `allocated_bytes()` grows, proving the `TrArena::Ref<T> = &'alloc mut T`
+///   path of `BumpAlloc`.
+#[derive(Debug, PartialEq, denco_macro::TrDecodable)]
+struct Point {
+    x_: u32,
+    y_: u32,
+}
+
+#[test]
+fn decode_into_bump_arena_reference() {
+    let bump = BumpAlloc::new();
+    let bytes = [0x92u8, 0x01, 0x02];
+    let mut input: &[u8] = &bytes;
+    let decoder = MpDecoder::new_in(&mut input, &bump);
+    let value: &mut Point = block_on_(
+        <&mut Point as TrDecodable<'_, '_, BumpAlloc>>::decode_async(decoder)
+            .may_cancel_with(NonCancellableToken::new()),
+    )
+    .expect("引用版解码应当成功");
+    assert_eq!(value.x_, 1);
+    assert_eq!(value.y_, 2);
+    assert!(bump.allocated_bytes() > 0, "引用版解码应使用 arena");
 }

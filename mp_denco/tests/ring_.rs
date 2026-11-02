@@ -18,7 +18,10 @@ use abs_buff::{
     buffer::{TrBuffSegmMut, TrBuffSegmRef},
 };
 use abs_cancel::{NonCancellableToken, TrMayCancel};
-use abs_denco::{de::TrDecodable, ser::TrEncodable};
+use abs_denco::{
+    de::{NoArena, TrDecodable},
+    ser::TrEncodable,
+};
 use cantok_rs::CancellationSource;
 use mp_denco::{MpDecoder, MpEncoder, MpError};
 use serde::Serialize;
@@ -41,7 +44,11 @@ use support::{
 /// 判断 / Assert：字节逐字节相等，解码值 `==` 原值。
 fn assert_ring_roundtrip_<T>(value: &T, cap: usize)
 where
-    T: TrEncodable + for<'de> TrDecodable<'de> + Serialize + PartialEq + fmt::Debug,
+    T: TrEncodable
+        + for<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena>
+        + Serialize
+        + PartialEq
+        + fmt::Debug,
 {
     let mut byte_ring = new_ring_(cap);
     encode_ring_(&mut byte_ring, value);

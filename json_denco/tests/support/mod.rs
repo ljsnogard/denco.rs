@@ -18,7 +18,7 @@ use std::task::Waker;
 use abs_buff::{Demand, TrBuffRead, TrBuffWrite, buffer::TrBuffSegmMut};
 use abs_cancel::{NonCancellableToken, TrCancellationToken, TrMayCancel};
 use abs_denco::{
-    de::{self, TrDecodable},
+    de::{self, NoArena, TrDecodable},
     ser::TrEncodable,
 };
 use denco_macro::{TrDecodable, TrEncodable};
@@ -158,7 +158,7 @@ impl TrEncodable for BytesVal {
 
 pub struct BytesValVisitor;
 
-impl<'de> abs_denco::de::Visitor<'de> for BytesValVisitor {
+impl<'de, 'alloc> abs_denco::de::Visitor<'de, 'alloc, NoArena> for BytesValVisitor {
     type Value = BytesVal;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -190,19 +190,21 @@ impl<'de> abs_denco::de::Visitor<'de> for BytesValVisitor {
     }
 }
 
-impl<'de> TrDecodable<'de> for BytesVal {
+impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for BytesVal {
     type DecodeAsync<'a, D>
         = D::DecodeByteBufAsync<'a, BytesValVisitor>
     where
         'de: 'a,
-        D: abs_denco::de::TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: abs_denco::de::TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: abs_denco::de::TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: abs_denco::de::TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -235,9 +237,9 @@ where
 }
 
 /// 从切片解码一个值。
-pub fn decode_from_slice_<'de, T>(bytes: &'de [u8]) -> T
+pub fn decode_from_slice_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
 {
     let mut input: &'de [u8] = bytes;
     let mut decoder = JsonDecoder::new(&mut input);
@@ -290,9 +292,9 @@ where
 ///
 /// 单值场景可以直接新建解码器；同一连接上的多消息流应复用同一个
 /// [`JsonDecoder`]，否则解码器预读进缓冲的后续消息会随解码器一起丢弃。
-pub async fn decode_from_<'de, T, R>(reader: &mut R) -> Result<T, JsonError>
+pub async fn decode_from_<'de, 'alloc, T, R>(reader: &mut R) -> Result<T, JsonError>
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
     R: TrBuffRead<u8>,
 {
     let mut decoder = JsonDecoder::new(reader);
@@ -302,12 +304,12 @@ where
 }
 
 /// 从任意读端解码一个值，并允许外部取消。
-pub async fn decode_from_cancellable_<'de, T, R, C>(
+pub async fn decode_from_cancellable_<'de, 'alloc, T, R, C>(
     reader: &mut R,
     cancel: C,
 ) -> Result<T, JsonError>
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
     R: TrBuffRead<u8>,
     C: TrCancellationToken,
 {
@@ -316,9 +318,11 @@ where
 }
 
 /// 用已有的解码器继续解码一个值。
-pub async fn decode_next_<'de, T, R>(decoder: &mut JsonDecoder<'_, R>) -> Result<T, JsonError>
+pub async fn decode_next_<'de, 'alloc, T, R>(
+    decoder: &mut JsonDecoder<'_, R>,
+) -> Result<T, JsonError>
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
     R: TrBuffRead<u8>,
 {
     T::decode_async(&mut *decoder)

@@ -32,7 +32,10 @@ use std::{
 };
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
-use abs_denco::{de::TrDecodable, ser::TrEncodable};
+use abs_denco::{
+    de::{NoArena, TrDecodable},
+    ser::TrEncodable,
+};
 use mp_denco::{MpDecoder, MpEncoder};
 
 /// A1 / A2 两个 allocator 的分配次数。
@@ -142,9 +145,9 @@ where
 }
 
 /// 用 denco 从字节解码一个值。
-fn decode_<'de, T>(bytes: &'de [u8]) -> T
+fn decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
 {
     let mut input: &'de [u8] = bytes;
     block_on_(async {

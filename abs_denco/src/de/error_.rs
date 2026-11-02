@@ -5,7 +5,7 @@ use core::{
     fmt::{self, Display},
 };
 
-use super::Visitor;
+use super::{TrArena, Visitor};
 
 /// 反序列化过程中由数据格式定义的错误。
 ///
@@ -193,12 +193,32 @@ pub trait Expected {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<'de, T> Expected for T
+/// 把 [`Visitor`] 适配成 [`Expected`]。
+///
+/// `Expected` 本身不带 allocator 参数；如果直接写
+/// `impl<T: Visitor<...>> Expected for T`，`Alloc` 会成为未约束类型参数
+/// （E0207）。这里让适配器携带 `Alloc`，把参数约束在 self 类型上。
+pub(crate) struct VisitorExpected<'a, V, Alloc> {
+    visitor_: &'a V,
+    marker_: core::marker::PhantomData<Alloc>,
+}
+
+impl<'a, V, Alloc> VisitorExpected<'a, V, Alloc> {
+    pub(crate) fn new_(visitor: &'a V) -> Self {
+        Self {
+            visitor_: visitor,
+            marker_: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<'de, 'alloc, Alloc, V> Expected for VisitorExpected<'_, V, Alloc>
 where
-    T: Visitor<'de>,
+    Alloc: TrArena<'alloc> + 'alloc,
+    V: Visitor<'de, 'alloc, Alloc>,
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.expecting(formatter)
+        self.visitor_.expecting(formatter)
     }
 }
 

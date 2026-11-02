@@ -12,7 +12,7 @@ use core::{
 use std::{pin::pin, task::Waker};
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
-use abs_denco::de::{self, Visitor};
+use abs_denco::de::{self, NoArena, Visitor};
 
 /// 测试用错误类型。
 #[derive(Debug, PartialEq)]
@@ -50,7 +50,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
 /// 只实现借用字符串/字节方法的访问者，用来验证默认转发。
 struct LenVisitor;
 
-impl<'de> Visitor<'de> for LenVisitor {
+impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for LenVisitor {
     type Value = usize;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -2,7 +2,7 @@
 
 use abs_cancel::TrMayCancel;
 
-use super::{Error, TrDecodableSeed, Visitor};
+use super::{Error, TrArena, TrDecodableSeed, Visitor};
 
 /// 提供对序列中各个元素的访问。
 ///
@@ -13,7 +13,7 @@ use super::{Error, TrDecodableSeed, Visitor};
 ///
 /// 当输入不是合法序列、元素无法反序列化或底层 I/O 失败时返回
 /// `Self::Error`。
-pub trait SeqAccess<'de> {
+pub trait SeqAccess<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> {
     /// 反序列化失败时产生的错误类型。
     type Error: Error;
 
@@ -28,7 +28,8 @@ pub trait SeqAccess<'de> {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<T::Value>, Self::Error>>
     where
         'de: 'a,
-        T: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        T: TrDecodableSeed<'de, 'alloc, Alloc> + 'a,
         T::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -50,7 +51,7 @@ pub trait SeqAccess<'de> {
 ///
 /// 当输入不是合法映射、键或值无法反序列化或底层 I/O 失败时返回
 /// `Self::Error`。
-pub trait MapAccess<'de> {
+pub trait MapAccess<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> {
     /// 反序列化失败时产生的错误类型。
     type Error: Error;
 
@@ -67,7 +68,8 @@ pub trait MapAccess<'de> {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<K::Value>, Self::Error>>
     where
         'de: 'a,
-        K: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        K: TrDecodableSeed<'de, 'alloc, Alloc> + 'a,
         K::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -83,7 +85,8 @@ pub trait MapAccess<'de> {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        V: TrDecodableSeed<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -101,12 +104,12 @@ pub trait MapAccess<'de> {
 /// # Errors
 ///
 /// 当输入不是合法枚举或变体名无法识别时返回 `Self::Error`。
-pub trait EnumAccess<'de>: Sized {
+pub trait EnumAccess<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 反序列化失败时产生的错误类型。
     type Error: Error;
 
     /// 继续读取变体内容的状态机。
-    type Variant: VariantAccess<'de, Error = Self::Error>;
+    type Variant: VariantAccess<'de, 'alloc, Alloc, Error = Self::Error>;
 
     /// 用给定的 seed 读取变体名，并返回变体内容的访问器。
     ///
@@ -119,7 +122,8 @@ pub trait EnumAccess<'de>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<(V::Value, Self::Variant), Self::Error>>
     where
         'de: 'a,
-        V: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        V: TrDecodableSeed<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Variant: 'a,
@@ -131,7 +135,7 @@ pub trait EnumAccess<'de>: Sized {
 /// # Errors
 ///
 /// 变体内容与声明的形状不符，或底层读取失败时返回 `Self::Error`。
-pub trait VariantAccess<'de>: Sized {
+pub trait VariantAccess<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 反序列化失败时产生的错误类型。
     type Error: Error;
 
@@ -143,6 +147,7 @@ pub trait VariantAccess<'de>: Sized {
     fn unit_variant<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<(), Self::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Error: 'a;
 
@@ -157,7 +162,8 @@ pub trait VariantAccess<'de>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<T::Value, Self::Error>>
     where
         'de: 'a,
-        T: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        T: TrDecodableSeed<'de, 'alloc, Alloc> + 'a,
         T::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -174,7 +180,8 @@ pub trait VariantAccess<'de>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -191,7 +198,8 @@ pub trait VariantAccess<'de>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;

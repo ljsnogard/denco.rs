@@ -30,7 +30,10 @@ use abs_buff::{
 };
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use abs_denco::{
-    de::{EnumAccess, MapAccess, SeqAccess, TrDecodableSeed, TrDecoder, VariantAccess, Visitor},
+    de::{
+        EnumAccess, MapAccess, NoArena, SeqAccess, TrDecodableSeed, TrDecoder, VariantAccess,
+        Visitor,
+    },
     forward_to_decode_any,
 };
 use gen_mcf2::gen_may_cancel_future;
@@ -612,7 +615,7 @@ enum ValueMode {
 }
 
 #[gen_may_cancel_future(DecodeValueOp, pub)]
-async fn decode_value_async_<'r, 'de, 'a, R, V, C>(
+async fn decode_value_async_<'alloc, 'r, 'de, 'a, R, V, C>(
     de: &'a mut JsonDecoder<'r, R>,
     mode: ValueMode,
     visitor: V,
@@ -620,9 +623,10 @@ async fn decode_value_async_<'r, 'de, 'a, R, V, C>(
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de> + 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -725,16 +729,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeAnyValueOp, pub)]
-async fn decode_any_value_async_<'r, 'de, 'a, R, V, C>(
+async fn decode_any_value_async_<'alloc, 'r, 'de, 'a, R, V, C>(
     de: &'a mut JsonDecoder<'r, R>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de> + 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -785,16 +790,17 @@ where
 }
 
 #[gen_may_cancel_future(VisitSeqOp, pub)]
-async fn visit_seq_async_<'r, 'de, 'a, R, V, C>(
+async fn visit_seq_async_<'alloc, 'r, 'de, 'a, R, V, C>(
     de: &'a mut JsonDecoder<'r, R>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de> + 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -818,16 +824,17 @@ where
 }
 
 #[gen_may_cancel_future(VisitMapOp, pub)]
-async fn visit_map_async_<'r, 'de, 'a, R, V, C>(
+async fn visit_map_async_<'alloc, 'r, 'de, 'a, R, V, C>(
     de: &'a mut JsonDecoder<'r, R>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de> + 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -858,7 +865,7 @@ struct JsonSeqAccess<'a, 'r, R> {
     done_: &'a mut bool,
 }
 
-impl<'de, 'r, R> SeqAccess<'de> for JsonSeqAccess<'_, 'r, R>
+impl<'de, 'alloc, 'r, R> SeqAccess<'de, 'alloc, NoArena> for JsonSeqAccess<'_, 'r, R>
 where
     R: TrBuffRead<u8> + 'r,
 {
@@ -870,12 +877,13 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<T::Value>, Self::Error>>
     where
         'de: 'a,
-        T: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        T: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
         T::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeElementOpAsync::<'r, 'de, 'a, 'a, R, T>::new(
+        DecodeElementOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, T>::new(
             &mut *self.de_,
             &mut self.first_,
             &mut *self.done_,
@@ -896,7 +904,7 @@ struct JsonMapAccess<'a, 'r, R> {
     done_: &'a mut bool,
 }
 
-impl<'de, 'r, R> MapAccess<'de> for JsonMapAccess<'_, 'r, R>
+impl<'de, 'alloc, 'r, R> MapAccess<'de, 'alloc, NoArena> for JsonMapAccess<'_, 'r, R>
 where
     R: TrBuffRead<u8> + 'r,
 {
@@ -908,12 +916,13 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<K::Value>, Self::Error>>
     where
         'de: 'a,
-        K: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        K: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
         K::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeKeyOpAsync::<'r, 'de, 'a, 'a, R, K>::new(
+        DecodeKeyOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, K>::new(
             &mut *self.de_,
             &mut self.first_,
             &mut self.has_key_,
@@ -928,12 +937,13 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        V: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeEntryValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(
+        DecodeEntryValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(
             &mut *self.de_,
             &mut self.has_key_,
             seed,
@@ -946,7 +956,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeElementOp, pub)]
-async fn decode_element_async_<'r, 'de, 'a, R, T, C>(
+async fn decode_element_async_<'alloc, 'r, 'de, 'a, R, T, C>(
     de: &'a mut JsonDecoder<'r, R>,
     first: &'a mut bool,
     done: &'a mut bool,
@@ -955,9 +965,10 @@ async fn decode_element_async_<'r, 'de, 'a, R, T, C>(
 ) -> Result<Option<T::Value>, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    T: TrDecodableSeed<'de> + 'a,
+    T: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
     T::Value: 'a,
     C: TrCancellationToken,
 {
@@ -998,7 +1009,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeKeyOp, pub)]
-async fn decode_key_async_<'r, 'de, 'a, R, K, C>(
+async fn decode_key_async_<'alloc, 'r, 'de, 'a, R, K, C>(
     de: &'a mut JsonDecoder<'r, R>,
     first: &'a mut bool,
     has_key: &'a mut bool,
@@ -1008,9 +1019,10 @@ async fn decode_key_async_<'r, 'de, 'a, R, K, C>(
 ) -> Result<Option<K::Value>, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    K: TrDecodableSeed<'de> + 'a,
+    K: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
     K::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1059,7 +1071,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeEntryValueOp, pub)]
-async fn decode_entry_value_async_<'r, 'de, 'a, R, V, C>(
+async fn decode_entry_value_async_<'alloc, 'r, 'de, 'a, R, V, C>(
     de: &'a mut JsonDecoder<'r, R>,
     has_key: &'a mut bool,
     seed: V,
@@ -1067,9 +1079,10 @@ async fn decode_entry_value_async_<'r, 'de, 'a, R, V, C>(
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: TrDecodableSeed<'de> + 'a,
+    V: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1088,7 +1101,7 @@ struct JsonEnumAccess<'a, 'r, R> {
     unit_: bool,
 }
 
-impl<'de, 's, 'r, R> EnumAccess<'de> for JsonEnumAccess<'s, 'r, R>
+impl<'de, 'alloc, 's, 'r, R> EnumAccess<'de, 'alloc, NoArena> for JsonEnumAccess<'s, 'r, R>
 where
     R: TrBuffRead<u8> + 'r,
 {
@@ -1101,13 +1114,14 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<(V::Value, Self::Variant), Self::Error>>
     where
         'de: 'a,
-        V: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        V: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Variant: 'a,
         Self::Error: 'a,
     {
-        EnumVariantSeedOpAsync::<'r, 'de, 's, 'a, 'a, R, V>::new(
+        EnumVariantSeedOpAsync::<'alloc, 'r, 'de, 's, 'a, 'a, R, V>::new(
             self.de_, self.name_, self.unit_, seed,
         )
     }
@@ -1119,7 +1133,7 @@ pub struct JsonVariantAccess<'a, 'r, R> {
     unit_: bool,
 }
 
-impl<'de, 's, 'r, R> VariantAccess<'de> for JsonVariantAccess<'s, 'r, R>
+impl<'de, 'alloc, 's, 'r, R> VariantAccess<'de, 'alloc, NoArena> for JsonVariantAccess<'s, 'r, R>
 where
     R: TrBuffRead<u8> + 'r,
 {
@@ -1128,6 +1142,7 @@ where
     fn unit_variant<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<(), Self::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
@@ -1140,12 +1155,13 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<T::Value, Self::Error>>
     where
         'de: 'a,
-        T: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        T: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
         T::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        NewtypeVariantOpAsync::<'r, 'de, 's, 'a, 'a, R, T>::new(self.de_, self.unit_, seed)
+        NewtypeVariantOpAsync::<'alloc, 'r, 'de, 's, 'a, 'a, R, T>::new(self.de_, self.unit_, seed)
     }
 
     fn tuple_variant<'a, V>(
@@ -1155,12 +1171,15 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        TupleVariantOpAsync::<'r, 'de, 's, 'a, 'a, R, V>::new(self.de_, self.unit_, len, visitor)
+        TupleVariantOpAsync::<'alloc, 'r, 'de, 's, 'a, 'a, R, V>::new(
+            self.de_, self.unit_, len, visitor,
+        )
     }
 
     fn struct_variant<'a, V>(
@@ -1170,28 +1189,30 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        StructVariantOpAsync::<'r, 'de, 's, 'a, 'a, R, V>::new(
+        StructVariantOpAsync::<'alloc, 'r, 'de, 's, 'a, 'a, R, V>::new(
             self.de_, self.unit_, fields, visitor,
         )
     }
 }
 
 #[gen_may_cancel_future(DecodeEnumOp, pub)]
-async fn decode_enum_value_async_<'r, 'de, 'a, R, V, C>(
+async fn decode_enum_value_async_<'alloc, 'r, 'de, 'a, R, V, C>(
     de: &'a mut JsonDecoder<'r, R>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de> + 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1221,7 +1242,7 @@ where
 }
 
 #[gen_may_cancel_future(EnumVariantSeedOp, pub)]
-async fn enum_variant_seed_async_<'r, 'de, 's, 'a, R, V, C>(
+async fn enum_variant_seed_async_<'alloc, 'r, 'de, 's, 'a, R, V, C>(
     de: &'s mut JsonDecoder<'r, R>,
     name: String,
     unit: bool,
@@ -1230,10 +1251,11 @@ async fn enum_variant_seed_async_<'r, 'de, 's, 'a, R, V, C>(
 ) -> Result<(V::Value, JsonVariantAccess<'s, 'r, R>), JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 's + 'a,
     's: 'a,
     R: TrBuffRead<u8> + 'r,
-    V: TrDecodableSeed<'de> + 'a,
+    V: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1272,7 +1294,7 @@ where
 }
 
 #[gen_may_cancel_future(NewtypeVariantOp, pub)]
-async fn newtype_variant_async_<'r, 'de, 's, 'a, R, T, C>(
+async fn newtype_variant_async_<'alloc, 'r, 'de, 's, 'a, R, T, C>(
     de: &'s mut JsonDecoder<'r, R>,
     unit: bool,
     seed: T,
@@ -1280,10 +1302,11 @@ async fn newtype_variant_async_<'r, 'de, 's, 'a, R, T, C>(
 ) -> Result<T::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     's: 'a,
     R: TrBuffRead<u8> + 'r,
-    T: TrDecodableSeed<'de> + 'a,
+    T: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
     T::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1300,7 +1323,7 @@ where
 }
 
 #[gen_may_cancel_future(TupleVariantOp, pub)]
-async fn tuple_variant_async_<'r, 'de, 's, 'a, R, V, C>(
+async fn tuple_variant_async_<'alloc, 'r, 'de, 's, 'a, R, V, C>(
     de: &'s mut JsonDecoder<'r, R>,
     unit: bool,
     len: usize,
@@ -1309,10 +1332,11 @@ async fn tuple_variant_async_<'r, 'de, 's, 'a, R, V, C>(
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     's: 'a,
     R: TrBuffRead<u8> + 'r,
-    V: Visitor<'de> + 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1329,7 +1353,7 @@ where
 }
 
 #[gen_may_cancel_future(StructVariantOp, pub)]
-async fn struct_variant_async_<'r, 'de, 's, 'a, R, V, C>(
+async fn struct_variant_async_<'alloc, 'r, 'de, 's, 'a, R, V, C>(
     de: &'s mut JsonDecoder<'r, R>,
     unit: bool,
     fields: &'static [&'static str],
@@ -1338,10 +1362,11 @@ async fn struct_variant_async_<'r, 'de, 's, 'a, R, V, C>(
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
+    'alloc: 'a,
     'r: 'a,
     's: 'a,
     R: TrBuffRead<u8> + 'r,
-    V: Visitor<'de> + 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1357,18 +1382,23 @@ where
     Ok(value)
 }
 
-impl<'de, 'r, R> TrDecoder<'de> for &mut JsonDecoder<'r, R>
+impl<'de, 'alloc, 'r, R> TrDecoder<'de, 'alloc, NoArena> for &mut JsonDecoder<'r, R>
 where
     R: TrBuffRead<u8> + 'r,
 {
     type Error = JsonError;
 
+    fn allocator(&self) -> &'alloc NoArena {
+        &NoArena
+    }
+
     type DecodeAnyAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1376,21 +1406,23 @@ where
     fn decode_any<'a, V>(self, visitor: V) -> Self::DecodeAnyAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Any, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Any, visitor)
     }
 
     /// 所有 `decode_*` 方法共用同一个解析状态机，只是模式不同。
     type DecodeBoolAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1398,20 +1430,22 @@ where
     fn decode_bool<'a, V>(self, visitor: V) -> Self::DecodeBoolAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Bool, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Bool, visitor)
     }
 
     type DecodeI8Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1419,20 +1453,22 @@ where
     fn decode_i8<'a, V>(self, visitor: V) -> Self::DecodeI8Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I8, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I8, visitor)
     }
 
     type DecodeI16Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1440,20 +1476,22 @@ where
     fn decode_i16<'a, V>(self, visitor: V) -> Self::DecodeI16Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I16, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I16, visitor)
     }
 
     type DecodeI32Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1461,20 +1499,22 @@ where
     fn decode_i32<'a, V>(self, visitor: V) -> Self::DecodeI32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I32, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I32, visitor)
     }
 
     type DecodeI64Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1482,20 +1522,22 @@ where
     fn decode_i64<'a, V>(self, visitor: V) -> Self::DecodeI64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I64, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I64, visitor)
     }
 
     type DecodeI128Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1503,20 +1545,22 @@ where
     fn decode_i128<'a, V>(self, visitor: V) -> Self::DecodeI128Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I128, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::I128, visitor)
     }
 
     type DecodeU8Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1524,20 +1568,22 @@ where
     fn decode_u8<'a, V>(self, visitor: V) -> Self::DecodeU8Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U8, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U8, visitor)
     }
 
     type DecodeU16Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1545,20 +1591,22 @@ where
     fn decode_u16<'a, V>(self, visitor: V) -> Self::DecodeU16Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U16, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U16, visitor)
     }
 
     type DecodeU32Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1566,20 +1614,22 @@ where
     fn decode_u32<'a, V>(self, visitor: V) -> Self::DecodeU32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U32, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U32, visitor)
     }
 
     type DecodeU64Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1587,20 +1637,22 @@ where
     fn decode_u64<'a, V>(self, visitor: V) -> Self::DecodeU64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U64, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U64, visitor)
     }
 
     type DecodeU128Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1608,20 +1660,22 @@ where
     fn decode_u128<'a, V>(self, visitor: V) -> Self::DecodeU128Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U128, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::U128, visitor)
     }
 
     type DecodeF32Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1629,20 +1683,22 @@ where
     fn decode_f32<'a, V>(self, visitor: V) -> Self::DecodeF32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::F32, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::F32, visitor)
     }
 
     type DecodeF64Async<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1650,20 +1706,22 @@ where
     fn decode_f64<'a, V>(self, visitor: V) -> Self::DecodeF64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::F64, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::F64, visitor)
     }
 
     type DecodeCharAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1671,20 +1729,22 @@ where
     fn decode_char<'a, V>(self, visitor: V) -> Self::DecodeCharAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Char, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Char, visitor)
     }
 
     type DecodeStrAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1692,20 +1752,22 @@ where
     fn decode_str<'a, V>(self, visitor: V) -> Self::DecodeStrAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Str, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Str, visitor)
     }
 
     type DecodeStringAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1713,20 +1775,22 @@ where
     fn decode_string<'a, V>(self, visitor: V) -> Self::DecodeStringAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::String, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::String, visitor)
     }
 
     type DecodeBytesAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1734,20 +1798,22 @@ where
     fn decode_bytes<'a, V>(self, visitor: V) -> Self::DecodeBytesAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Bytes, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Bytes, visitor)
     }
 
     type DecodeByteBufAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1755,20 +1821,22 @@ where
     fn decode_byte_buf<'a, V>(self, visitor: V) -> Self::DecodeByteBufAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::ByteBuf, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::ByteBuf, visitor)
     }
 
     type DecodeOptionAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1776,20 +1844,22 @@ where
     fn decode_option<'a, V>(self, visitor: V) -> Self::DecodeOptionAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Option, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Option, visitor)
     }
 
     type DecodeUnitAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1797,20 +1867,22 @@ where
     fn decode_unit<'a, V>(self, visitor: V) -> Self::DecodeUnitAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Unit, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Unit, visitor)
     }
 
     type DecodeUnitStructAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1822,20 +1894,26 @@ where
     ) -> Self::DecodeUnitStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::UnitStruct, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(
+            self,
+            ValueMode::UnitStruct,
+            visitor,
+        )
     }
 
     type DecodeNewtypeStructAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1847,20 +1925,26 @@ where
     ) -> Self::DecodeNewtypeStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::NewtypeStruct, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(
+            self,
+            ValueMode::NewtypeStruct,
+            visitor,
+        )
     }
 
     type DecodeSeqAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1868,20 +1952,22 @@ where
     fn decode_seq<'a, V>(self, visitor: V) -> Self::DecodeSeqAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Seq, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Seq, visitor)
     }
 
     type DecodeTupleAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1889,20 +1975,22 @@ where
     fn decode_tuple<'a, V>(self, _len: usize, visitor: V) -> Self::DecodeTupleAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Tuple, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Tuple, visitor)
     }
 
     type DecodeTupleStructAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1915,20 +2003,26 @@ where
     ) -> Self::DecodeTupleStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::TupleStruct, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(
+            self,
+            ValueMode::TupleStruct,
+            visitor,
+        )
     }
 
     type DecodeMapAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1936,20 +2030,22 @@ where
     fn decode_map<'a, V>(self, visitor: V) -> Self::DecodeMapAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Map, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Map, visitor)
     }
 
     type DecodeStructAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1962,20 +2058,22 @@ where
     ) -> Self::DecodeStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Struct, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Struct, visitor)
     }
 
     type DecodeEnumAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1988,20 +2086,22 @@ where
     ) -> Self::DecodeEnumAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Enum, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Enum, visitor)
     }
 
     type DecodeIdentifierAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2009,20 +2109,26 @@ where
     fn decode_identifier<'a, V>(self, visitor: V) -> Self::DecodeIdentifierAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::Identifier, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(
+            self,
+            ValueMode::Identifier,
+            visitor,
+        )
     }
 
     type DecodeIgnoredAnyAsync<'a, V>
-        = DecodeValueOpAsync<'r, 'de, 'a, 'a, R, V>
+        = DecodeValueOpAsync<'alloc, 'r, 'de, 'a, 'a, R, V>
     where
         'de: 'a,
+        'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de> + 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2030,12 +2136,17 @@ where
     fn decode_ignored_any<'a, V>(self, visitor: V) -> Self::DecodeIgnoredAnyAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeValueOpAsync::<'r, 'de, 'a, 'a, R, V>::new(self, ValueMode::IgnoredAny, visitor)
+        DecodeValueOpAsync::<'alloc, 'r, 'de, 'a, 'a, R, V>::new(
+            self,
+            ValueMode::IgnoredAny,
+            visitor,
+        )
     }
 }
 
@@ -2093,7 +2204,7 @@ fn parse_f64_name_(name: &str) -> Result<f64, JsonError> {
 }
 
 #[gen_may_cancel_future(DecodeNameOp, pub)]
-async fn decode_name_async_<'de, 'a, V, C>(
+async fn decode_name_async_<'alloc, 'de, 'a, V, C>(
     name: String,
     mode: NameMode,
     visitor: V,
@@ -2101,7 +2212,8 @@ async fn decode_name_async_<'de, 'a, V, C>(
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
-    V: Visitor<'de> + 'a,
+    'alloc: 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -2166,14 +2278,19 @@ where
     }
 }
 
-impl<'de> TrDecoder<'de> for JsonNameDecoder {
+impl<'de, 'alloc> TrDecoder<'de, 'alloc, NoArena> for JsonNameDecoder {
     type Error = JsonError;
 
+    fn allocator(&self) -> &'alloc NoArena {
+        &NoArena
+    }
+
     type DecodeAnyAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2181,19 +2298,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_any<'a, V>(self, visitor: V) -> Self::DecodeAnyAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
     }
 
     type DecodeBoolAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2201,19 +2320,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_bool<'a, V>(self, visitor: V) -> Self::DecodeBoolAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Bool, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Bool, visitor)
     }
 
     type DecodeI8Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2221,19 +2342,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_i8<'a, V>(self, visitor: V) -> Self::DecodeI8Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
     }
 
     type DecodeI16Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2241,19 +2364,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_i16<'a, V>(self, visitor: V) -> Self::DecodeI16Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
     }
 
     type DecodeI32Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2261,19 +2386,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_i32<'a, V>(self, visitor: V) -> Self::DecodeI32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
     }
 
     type DecodeI64Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2281,19 +2408,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_i64<'a, V>(self, visitor: V) -> Self::DecodeI64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
     }
 
     type DecodeI128Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2301,19 +2430,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_i128<'a, V>(self, visitor: V) -> Self::DecodeI128Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::I128, visitor)
     }
 
     type DecodeU8Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2321,19 +2452,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_u8<'a, V>(self, visitor: V) -> Self::DecodeU8Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
     }
 
     type DecodeU16Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2341,19 +2474,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_u16<'a, V>(self, visitor: V) -> Self::DecodeU16Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
     }
 
     type DecodeU32Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2361,19 +2496,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_u32<'a, V>(self, visitor: V) -> Self::DecodeU32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
     }
 
     type DecodeU64Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2381,19 +2518,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_u64<'a, V>(self, visitor: V) -> Self::DecodeU64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
     }
 
     type DecodeU128Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2401,19 +2540,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_u128<'a, V>(self, visitor: V) -> Self::DecodeU128Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::U128, visitor)
     }
 
     type DecodeF32Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2421,19 +2562,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_f32<'a, V>(self, visitor: V) -> Self::DecodeF32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::F64, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::F64, visitor)
     }
 
     type DecodeF64Async<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2441,19 +2584,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_f64<'a, V>(self, visitor: V) -> Self::DecodeF64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::F64, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::F64, visitor)
     }
 
     type DecodeCharAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2461,19 +2606,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_char<'a, V>(self, visitor: V) -> Self::DecodeCharAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Char, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Char, visitor)
     }
 
     type DecodeStrAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2481,19 +2628,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_str<'a, V>(self, visitor: V) -> Self::DecodeStrAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Str, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Str, visitor)
     }
 
     type DecodeStringAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2501,19 +2650,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_string<'a, V>(self, visitor: V) -> Self::DecodeStringAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::String, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::String, visitor)
     }
 
     type DecodeBytesAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2521,19 +2672,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_bytes<'a, V>(self, visitor: V) -> Self::DecodeBytesAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
     }
 
     type DecodeByteBufAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2541,19 +2694,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_byte_buf<'a, V>(self, visitor: V) -> Self::DecodeByteBufAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
     }
 
     type DecodeOptionAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2561,19 +2716,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_option<'a, V>(self, visitor: V) -> Self::DecodeOptionAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Some, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Some, visitor)
     }
 
     type DecodeUnitAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2581,19 +2738,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     fn decode_unit<'a, V>(self, visitor: V) -> Self::DecodeUnitAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
     }
 
     type DecodeUnitStructAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2605,19 +2764,21 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     ) -> Self::DecodeUnitStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Any, visitor)
     }
 
     type DecodeNewtypeStructAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2629,15 +2790,17 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     ) -> Self::DecodeNewtypeStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Newtype, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Newtype, visitor)
     }
 
     forward_to_decode_any! {
+        alloc = NoArena;
         decode_seq => DecodeSeqAsync,
         decode_tuple => DecodeTupleAsync(len: usize),
         decode_tuple_struct => DecodeTupleStructAsync(name: &'static str, len: usize),
@@ -2648,10 +2811,11 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     }
 
     type DecodeEnumAsync<'a, V>
-        = DecodeNameOpAsync<'de, 'a, 'a, V>
+        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -2664,12 +2828,13 @@ impl<'de> TrDecoder<'de> for JsonNameDecoder {
     ) -> Self::DecodeEnumAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'de, 'a, 'a, V>::new(self.name_, NameMode::Enum, visitor)
+        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, NameMode::Enum, visitor)
     }
 }
 
@@ -2678,7 +2843,7 @@ struct JsonNameEnumAccess {
     name_: String,
 }
 
-impl<'de> EnumAccess<'de> for JsonNameEnumAccess {
+impl<'de, 'alloc> EnumAccess<'de, 'alloc, NoArena> for JsonNameEnumAccess {
     type Error = JsonError;
     type Variant = JsonNameVariantAccess;
 
@@ -2688,25 +2853,27 @@ impl<'de> EnumAccess<'de> for JsonNameEnumAccess {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<(V::Value, Self::Variant), Self::Error>>
     where
         'de: 'a,
-        V: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        V: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Variant: 'a,
         Self::Error: 'a,
     {
-        NameVariantSeedOpAsync::<'de, 'a, 'a, V>::new(self.name_, seed)
+        NameVariantSeedOpAsync::<'alloc, 'de, 'a, 'a, V>::new(self.name_, seed)
     }
 }
 
 #[gen_may_cancel_future(NameVariantSeedOp, pub)]
-async fn name_variant_seed_async_<'de, 'a, V, C>(
+async fn name_variant_seed_async_<'alloc, 'de, 'a, V, C>(
     name: String,
     seed: V,
     cancel: C,
 ) -> Result<(V::Value, JsonNameVariantAccess), JsonError>
 where
     'de: 'a,
-    V: TrDecodableSeed<'de> + 'a,
+    'alloc: 'a,
+    V: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -2720,12 +2887,13 @@ where
 /// 对象键枚举只可能是单元变体。
 pub struct JsonNameVariantAccess;
 
-impl<'de> VariantAccess<'de> for JsonNameVariantAccess {
+impl<'de, 'alloc> VariantAccess<'de, 'alloc, NoArena> for JsonNameVariantAccess {
     type Error = JsonError;
 
     fn unit_variant<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<(), Self::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
@@ -2738,12 +2906,13 @@ impl<'de> VariantAccess<'de> for JsonNameVariantAccess {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<T::Value, Self::Error>>
     where
         'de: 'a,
-        T: TrDecodableSeed<'de> + 'a,
+        'alloc: 'a,
+        T: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
         T::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        NameVariantErrorOpAsync::<'de, 'a, 'a, T>::new(_seed)
+        NameVariantErrorOpAsync::<'alloc, 'de, 'a, 'a, T>::new(_seed)
     }
 
     fn tuple_variant<'a, V>(
@@ -2753,12 +2922,13 @@ impl<'de> VariantAccess<'de> for JsonNameVariantAccess {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        NameVariantVisitorErrorOpAsync::<'de, 'a, 'a, V>::new(_visitor)
+        NameVariantVisitorErrorOpAsync::<'alloc, 'de, 'a, 'a, V>::new(_visitor)
     }
 
     fn struct_variant<'a, V>(
@@ -2768,23 +2938,25 @@ impl<'de> VariantAccess<'de> for JsonNameVariantAccess {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        NameVariantVisitorErrorOpAsync::<'de, 'a, 'a, V>::new(_visitor)
+        NameVariantVisitorErrorOpAsync::<'alloc, 'de, 'a, 'a, V>::new(_visitor)
     }
 }
 
 #[gen_may_cancel_future(NameVariantErrorOp, pub)]
-async fn name_variant_error_async_<'de, 'a, T, C>(
+async fn name_variant_error_async_<'alloc, 'de, 'a, T, C>(
     _seed: T,
     cancel: C,
 ) -> Result<T::Value, JsonError>
 where
     'de: 'a,
-    T: TrDecodableSeed<'de> + 'a,
+    'alloc: 'a,
+    T: TrDecodableSeed<'de, 'alloc, NoArena> + 'a,
     T::Value: 'a,
     C: TrCancellationToken,
 {
@@ -2795,13 +2967,14 @@ where
 }
 
 #[gen_may_cancel_future(NameVariantVisitorErrorOp, pub)]
-async fn name_variant_visitor_error_async_<'de, 'a, V, C>(
+async fn name_variant_visitor_error_async_<'alloc, 'de, 'a, V, C>(
     _visitor: V,
     cancel: C,
 ) -> Result<V::Value, JsonError>
 where
     'de: 'a,
-    V: Visitor<'de> + 'a,
+    'alloc: 'a,
+    V: Visitor<'de, 'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {

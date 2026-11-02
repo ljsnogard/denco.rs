@@ -8,7 +8,7 @@
 /// 除 `visitor` 之外的参数：
 ///
 /// ```ignore
-/// impl<'de> TrDecoder<'de> for MyDecoder {
+/// impl<'de, 'alloc> TrDecoder<'de, 'alloc, NoArena> for MyDecoder {
 ///     type Error = MyError;
 ///     type DecodeAnyAsync<'a, V> = MyAnyFuture<'a, V> where ...;
 ///
@@ -16,6 +16,7 @@
 ///     where ... { ... }
 ///
 ///     forward_to_decode_any! {
+///         alloc = NoArena;
 ///         decode_bool => DecodeBoolAsync,
 ///         decode_i8 => DecodeI8Async,
 ///         decode_unit_struct => DecodeUnitStructAsync(name: &'static str),
@@ -24,8 +25,8 @@
 /// }
 /// ```
 ///
-/// 宏假定 `impl` 的 trait 泛型生命周期名为 `'de`，并且该 `impl` 已经定义了
-/// `DecodeAnyAsync`。
+/// 宏假定 `impl` 的 trait 泛型生命周期名为 `'de` / `'alloc`，allocator 类型
+/// 由开头的 `alloc = ...;` 给出，并且该 `impl` 已经定义了 `DecodeAnyAsync`。
 ///
 /// # Panics
 ///
@@ -36,18 +37,19 @@
 /// 转发后的方法把错误原样来自 `decode_any`。
 #[macro_export]
 macro_rules! forward_to_decode_any {
-    ($($method:ident => $future:ident $( ( $($arg:ident : $ty:ty),* ) )?),* $(,)?) => {
+    (alloc = $alloc:ty; $($method:ident => $future:ident $( ( $($arg:ident : $ty:ty),* ) )?),* $(,)?) => {
         $(
             $crate::forward_to_decode_any!(
-                @impl $method => $future $( ( $($arg : $ty),* ) )?
+                @impl $alloc; $method => $future $( ( $($arg : $ty),* ) )?
             );
         )*
     };
-    (@impl $method:ident => $future:ident) => {
+    (@impl $alloc:ty; $method:ident => $future:ident) => {
         type $future<'a, V> = Self::DecodeAnyAsync<'a, V>
         where
             'de: 'a,
-            V: $crate::de::Visitor<'de> + 'a,
+            'alloc: 'a,
+            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a;
@@ -55,7 +57,8 @@ macro_rules! forward_to_decode_any {
         fn $method<'a, V>(self, visitor: V) -> Self::$future<'a, V>
         where
             'de: 'a,
-            V: $crate::de::Visitor<'de> + 'a,
+            'alloc: 'a,
+            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a,
@@ -63,11 +66,12 @@ macro_rules! forward_to_decode_any {
             self.decode_any(visitor)
         }
     };
-    (@impl $method:ident => $future:ident ( $($arg:ident : $ty:ty),* )) => {
+    (@impl $alloc:ty; $method:ident => $future:ident ( $($arg:ident : $ty:ty),* )) => {
         type $future<'a, V> = Self::DecodeAnyAsync<'a, V>
         where
             'de: 'a,
-            V: $crate::de::Visitor<'de> + 'a,
+            'alloc: 'a,
+            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a;
@@ -75,7 +79,8 @@ macro_rules! forward_to_decode_any {
         fn $method<'a, V>(self, $($arg: $ty,)* visitor: V) -> Self::$future<'a, V>
         where
             'de: 'a,
-            V: $crate::de::Visitor<'de> + 'a,
+            'alloc: 'a,
+            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a,

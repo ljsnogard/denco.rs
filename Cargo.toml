@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "abs_denco",
+    "denco_bumpalo",
     "denco_macro",
     "mp_denco",
     "json_denco",

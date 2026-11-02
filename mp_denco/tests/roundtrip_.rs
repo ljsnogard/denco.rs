@@ -17,8 +17,8 @@ use std::{pin::pin, task::Waker};
 use abs_cancel::{CancelledToken, NonCancellableToken, TrCancellationToken, TrMayCancel};
 use abs_denco::{
     de::{
-        self, IgnoredAny, MapAccess, MapAccessExt, SeqAccess, SeqAccessExt, TrDecodable, TrDecoder,
-        Visitor,
+        self, IgnoredAny, MapAccess, MapAccessExt, NoArena, SeqAccess, SeqAccessExt, TrDecodable,
+        TrDecoder, Visitor,
     },
     ser::{
         TrEncodable, TrEncodeMap, TrEncodeMapExt, TrEncodeSeq, TrEncodeStruct, TrEncoder,
@@ -68,7 +68,7 @@ impl TrEncodable for Age {
 
 struct AgeVisitor;
 
-impl<'de> Visitor<'de> for AgeVisitor {
+impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for AgeVisitor {
     type Value = Age;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -89,29 +89,32 @@ impl<'de> Visitor<'de> for AgeVisitor {
 }
 
 #[gen_may_cancel_future(DecodeAgeOp)]
-async fn decode_age_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<Age, D::Error>
+async fn decode_age_async<'de, 'alloc, 'a, D, C>(de: D, cancel: C) -> Result<Age, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_u64(AgeVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de> TrDecodable<'de> for Age {
+impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for Age {
     type DecodeAsync<'a, D>
-        = DecodeAgeOpAsync<'de, 'a, 'a, D>
+        = DecodeAgeOpAsync<'de, 'alloc, 'a, 'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -147,7 +150,7 @@ impl TrEncodable for Name {
 
 struct NameVisitor;
 
-impl<'de> Visitor<'de> for NameVisitor {
+impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for NameVisitor {
     type Value = Name;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -168,29 +171,32 @@ impl<'de> Visitor<'de> for NameVisitor {
 }
 
 #[gen_may_cancel_future(DecodeNameOp)]
-async fn decode_name_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<Name, D::Error>
+async fn decode_name_async<'de, 'alloc, 'a, D, C>(de: D, cancel: C) -> Result<Name, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_str(NameVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de> TrDecodable<'de> for Name {
+impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for Name {
     type DecodeAsync<'a, D>
-        = DecodeNameOpAsync<'de, 'a, 'a, D>
+        = DecodeNameOpAsync<'de, 'alloc, 'a, 'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -226,7 +232,7 @@ impl TrEncodable for Flag {
 
 struct FlagVisitor;
 
-impl<'de> Visitor<'de> for FlagVisitor {
+impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for FlagVisitor {
     type Value = Flag;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -247,29 +253,32 @@ impl<'de> Visitor<'de> for FlagVisitor {
 }
 
 #[gen_may_cancel_future(DecodeFlagOp)]
-async fn decode_flag_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<Flag, D::Error>
+async fn decode_flag_async<'de, 'alloc, 'a, D, C>(de: D, cancel: C) -> Result<Flag, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_bool(FlagVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de> TrDecodable<'de> for Flag {
+impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for Flag {
     type DecodeAsync<'a, D>
-        = DecodeFlagOpAsync<'de, 'a, 'a, D>
+        = DecodeFlagOpAsync<'de, 'alloc, 'a, 'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -328,10 +337,11 @@ impl TrEncodable for Ages {
 }
 
 #[gen_may_cancel_future(VisitAges)]
-async fn visit_ages_async<'de, 'a, A, C>(mut seq: A, cancel: C) -> Result<Ages, A::Error>
+async fn visit_ages_async<'de, 'alloc, 'a, A, C>(mut seq: A, cancel: C) -> Result<Ages, A::Error>
 where
     'de: 'a,
-    A: SeqAccess<'de> + 'a,
+    'alloc: 'a,
+    A: SeqAccess<'de, 'alloc, NoArena> + 'a,
     A::Error: 'a,
     C: TrCancellationToken,
 {
@@ -348,7 +358,7 @@ where
 
 struct AgesVisitor;
 
-impl<'de> Visitor<'de> for AgesVisitor {
+impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for AgesVisitor {
     type Value = Ages;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -361,39 +371,43 @@ impl<'de> Visitor<'de> for AgesVisitor {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de> + 'a,
+        A: SeqAccess<'de, 'alloc, NoArena> + 'a,
         A::Error: 'a,
     {
-        VisitAgesAsync::<'de, 'a, 'a, A>::new(seq)
+        VisitAgesAsync::<'de, 'alloc, 'a, 'a, A>::new(seq)
     }
 }
 
 #[gen_may_cancel_future(DecodeAgesOp)]
-async fn decode_ages_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<Ages, D::Error>
+async fn decode_ages_async<'de, 'alloc, 'a, D, C>(de: D, cancel: C) -> Result<Ages, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_seq(AgesVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de> TrDecodable<'de> for Ages {
+impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for Ages {
     type DecodeAsync<'a, D>
-        = DecodeAgesOpAsync<'de, 'a, 'a, D>
+        = DecodeAgesOpAsync<'de, 'alloc, 'a, 'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -456,10 +470,14 @@ impl TrEncodable for Record {
 }
 
 #[gen_may_cancel_future(VisitRecord)]
-async fn visit_record_async<'de, 'a, A, C>(mut map: A, cancel: C) -> Result<Record, A::Error>
+async fn visit_record_async<'de, 'alloc, 'a, A, C>(
+    mut map: A,
+    cancel: C,
+) -> Result<Record, A::Error>
 where
     'de: 'a,
-    A: MapAccess<'de> + 'a,
+    'alloc: 'a,
+    A: MapAccess<'de, 'alloc, NoArena> + 'a,
     A::Error: 'a,
     C: TrCancellationToken,
 {
@@ -500,10 +518,14 @@ where
 
 /// 从位置数组读取 `Record`，用于验证默认 tuple 表示。
 #[gen_may_cancel_future(VisitRecordSeq)]
-async fn visit_record_seq_async<'de, 'a, A, C>(mut seq: A, cancel: C) -> Result<Record, A::Error>
+async fn visit_record_seq_async<'de, 'alloc, 'a, A, C>(
+    mut seq: A,
+    cancel: C,
+) -> Result<Record, A::Error>
 where
     'de: 'a,
-    A: SeqAccess<'de> + 'a,
+    'alloc: 'a,
+    A: SeqAccess<'de, 'alloc, NoArena> + 'a,
     A::Error: 'a,
     C: TrCancellationToken,
 {
@@ -526,7 +548,7 @@ where
 
 struct RecordVisitor;
 
-impl<'de> Visitor<'de> for RecordVisitor {
+impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for RecordVisitor {
     type Value = Record;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -539,12 +561,13 @@ impl<'de> Visitor<'de> for RecordVisitor {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: MapAccess<'de> + 'a,
+        A: MapAccess<'de, 'alloc, NoArena> + 'a,
         A::Error: 'a,
     {
-        VisitRecordAsync::<'de, 'a, 'a, A>::new(map)
+        VisitRecordAsync::<'de, 'alloc, 'a, 'a, A>::new(map)
     }
 
     fn visit_seq<'a, A>(
@@ -553,20 +576,22 @@ impl<'de> Visitor<'de> for RecordVisitor {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de> + 'a,
+        A: SeqAccess<'de, 'alloc, NoArena> + 'a,
         A::Error: 'a,
     {
-        VisitRecordSeqAsync::<'de, 'a, 'a, A>::new(seq)
+        VisitRecordSeqAsync::<'de, 'alloc, 'a, 'a, A>::new(seq)
     }
 }
 
 #[gen_may_cancel_future(DecodeRecordOp)]
-async fn decode_record_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<Record, D::Error>
+async fn decode_record_async<'de, 'alloc, 'a, D, C>(de: D, cancel: C) -> Result<Record, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -575,19 +600,21 @@ where
         .await
 }
 
-impl<'de> TrDecodable<'de> for Record {
+impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for Record {
     type DecodeAsync<'a, D>
-        = DecodeRecordOpAsync<'de, 'a, 'a, D>
+        = DecodeRecordOpAsync<'de, 'alloc, 'a, 'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -640,10 +667,14 @@ impl TrEncodable for MaybeAge {
 }
 
 #[gen_may_cancel_future(VisitMaybeAgeSome)]
-async fn visit_maybe_age_some_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<MaybeAge, D::Error>
+async fn visit_maybe_age_some_async<'de, 'alloc, 'a, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<MaybeAge, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -653,7 +684,7 @@ where
 
 struct MaybeAgeVisitor;
 
-impl<'de> Visitor<'de> for MaybeAgeVisitor {
+impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for MaybeAgeVisitor {
     type Value = MaybeAge;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -675,20 +706,25 @@ impl<'de> Visitor<'de> for MaybeAgeVisitor {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, D::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de> + 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
     {
-        VisitMaybeAgeSomeAsync::<'de, 'a, 'a, D>::new(de)
+        VisitMaybeAgeSomeAsync::<'de, 'alloc, 'a, 'a, D>::new(de)
     }
 }
 
 #[gen_may_cancel_future(DecodeMaybeAgeOp)]
-async fn decode_maybe_age_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<MaybeAge, D::Error>
+async fn decode_maybe_age_async<'de, 'alloc, 'a, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<MaybeAge, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -697,19 +733,21 @@ where
         .await
 }
 
-impl<'de> TrDecodable<'de> for MaybeAge {
+impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for MaybeAge {
     type DecodeAsync<'a, D>
-        = DecodeMaybeAgeOpAsync<'de, 'a, 'a, D>
+        = DecodeMaybeAgeOpAsync<'de, 'alloc, 'a, 'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -767,9 +805,9 @@ where
 }
 
 /// 从 `&[u8]` 解码任意 `TrDecodable`。
-fn decode_slice_<'de, T>(bytes: &'de [u8]) -> Result<T, MpError>
+fn decode_slice_<'de, 'alloc, T>(bytes: &'de [u8]) -> Result<T, MpError>
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
 {
     let mut input: &'de [u8] = bytes;
     block_on(async {

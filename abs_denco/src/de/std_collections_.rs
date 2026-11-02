@@ -10,7 +10,7 @@ use core::{
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    TrDecodable, TrDecoder,
+    TrArena, TrDecodable, TrDecoder,
     collect_::{MapCollectVisitor, SeqCollectVisitor},
     sink_::{TrMapSink, TrSeqSink},
 };
@@ -45,10 +45,11 @@ where
     }
 }
 
-impl<'de, K, V, TyHasher, A> TrDecodable<'de> for HashMap<K, V, TyHasher, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, TyHasher, A>
+    TrDecodable<'de, 'alloc, Alloc> for HashMap<K, V, TyHasher, A>
 where
-    K: TrDecodable<'de> + 'de + Eq + Hash,
-    V: TrDecodable<'de> + 'de,
+    K: TrDecodable<'de, 'alloc, Alloc> + 'de + Eq + Hash,
+    V: TrDecodable<'de, 'alloc, Alloc> + 'de,
     TyHasher: BuildHasher + Default,
     A: Allocator + Default,
 {
@@ -56,14 +57,16 @@ where
         = D::DecodeMapAsync<'a, MapCollectVisitor<K, V, HashMap<K, V, TyHasher, A>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -71,9 +74,10 @@ where
     }
 }
 
-impl<'de, T, TyHasher, A> TrDecodable<'de> for HashSet<T, TyHasher, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, TyHasher, A> TrDecodable<'de, 'alloc, Alloc>
+    for HashSet<T, TyHasher, A>
 where
-    T: TrDecodable<'de> + 'de + Eq + Hash,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de + Eq + Hash,
     TyHasher: BuildHasher + Default,
     A: Allocator + Default,
 {
@@ -81,14 +85,16 @@ where
         = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, HashSet<T, TyHasher, A>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

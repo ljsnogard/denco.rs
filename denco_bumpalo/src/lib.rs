@@ -1,12 +1,24 @@
-//! 基于 bumpalo 的 arena 分配器与带 allocator 的字符串。
+//! 基于 bumpalo 的 `abs_denco` arena 实现。
 //!
-//! 这些类型属于格式实现（`mp_denco`），不属于抽象层 `abs_denco`：
-//! `abs_denco` 只定义 `Allocator` 约束，不关心具体分配器来自哪里。
+//! 本 crate 只负责把 bumpalo 暴露成 [`abs_denco`] 需要的接口：
+//!
+//! - [`BumpAlloc`] 同时实现 [`core::alloc::Allocator`]（供 `Vec<T, BumpAlloc>`
+//!   这类容器使用）与 [`abs_denco::de::TrArena`]（供引用版解码使用，
+//!   `Ref<T> = &'alloc mut T`）；
+//! - [`BumpString`] 是 `Vec<u8, A>` 的薄封装，用 `Allocator` 参数补上
+//!   `String` 缺少的 allocator 能力。
+//!
+//! 它不依赖任何具体数据格式：`MpDecoder` / `JsonDecoder` 对 allocator 泛型化
+//! 之后，直接把 `&BumpAlloc` 传给解码器即可。
+
+#![no_std]
+#![feature(impl_trait_in_assoc_type)]
+
+extern crate alloc;
 
 use core::{
     alloc::{AllocError, Allocator, Layout},
-    fmt,
-    future,
+    fmt, future,
     ops::Deref,
     ptr::NonNull,
     str,
@@ -15,17 +27,17 @@ use core::{
 use alloc::{string::String, vec::Vec};
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
-use abs_denco::de::{Error, TrDecodable, TrDecoder, Visitor};
+use abs_denco::de::{Error, TrArena, TrDecodable, TrDecoder, Visitor};
 use atomic_sync::mutex::preemptive::SpinningMutexOwned;
 use bumpalo::Bump;
 use gen_mcf2::gen_may_cancel_future;
 
-
-/// 基于 bumpalo 的 [`Allocator`]，每次 [`Default::default`] 创建一个独立 arena。
+/// 基于 bumpalo 的 [`Allocator`] 与 [`TrArena`]，每次 [`Default::default`]
+/// 创建一个独立 arena。
 ///
 /// 它**不实现 `Clone`**：clone 一个 arena 没有共享语义。反序列化过程中需要
-/// 「借用」同一个 allocator 时，应通过 `&mut BumpAlloc` / `&BumpAlloc` 传递，
-/// 而不是复制。
+/// 「借用」同一个 arena 时，通过 `&BumpAlloc` 传给解码器（`MpDecoder::new_in`
+/// 等），而不是复制。
 ///
 /// # 语义
 ///
@@ -101,15 +113,66 @@ unsafe impl Allocator for BumpAlloc {
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
         if new_layout.size() == 0 {
-            return Result::Ok(NonNull::slice_from_raw_parts(
-                dangling_for_(new_layout),
-                0,
-            ));
+            return Result::Ok(NonNull::slice_from_raw_parts(dangling_for_(new_layout), 0));
         }
         // bump 不支持原地收缩；原块至少和 old_layout 一样大，满足 new_layout。
         // SAFETY: 调用方保证 ptr 来自本分配器且仍有 old_layout 大小；返回的块
         // 长度不小于 new_layout.size()，且 deallocate 是 no-op。
         Result::Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
+    }
+}
+
+/// `TrArena` 分配失败。
+///
+/// bumpalo 的 [`bumpalo::AllocErr`] 只实现了 `Display`，没有实现
+/// [`core::error::Error`]，因此这里提供一个薄适配。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BumpArenaError;
+
+impl fmt::Display for BumpArenaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("bump arena allocation failed")
+    }
+}
+
+impl core::error::Error for BumpArenaError {}
+
+impl<'alloc> TrArena<'alloc> for BumpAlloc {
+    type Error = BumpArenaError;
+
+    type Ref<T: 'alloc>
+        = &'alloc mut T
+    where
+        Self: 'alloc;
+
+    type AllocValueAsync<'a, T>
+        = future::Ready<Result<&'alloc mut T, BumpArenaError>>
+    where
+        'alloc: 'a,
+        T: 'alloc + 'a,
+        Self: 'alloc + 'a;
+
+    fn alloc_value_async<'a, T>(&'alloc self, value: T) -> Self::AllocValueAsync<'a, T>
+    where
+        'alloc: 'a,
+        T: 'alloc + 'a,
+        Self: 'alloc + 'a,
+    {
+        let layout = Layout::new::<T>();
+        let result = match self.allocate(layout) {
+            Result::Ok(block) => {
+                let ptr = block.as_ptr().cast::<T>();
+                // SAFETY: `allocate` 返回按 `layout` 对齐、大小至少
+                // `size_of::<T>()` 的未初始化块；写入一次后由 arena 持有到
+                // `BumpAlloc` 析构，期间不会再被移动或释放。
+                unsafe {
+                    ptr.write(value);
+                    Result::Ok(&mut *ptr)
+                }
+            }
+            Result::Err(_) => Result::Err(BumpArenaError),
+        };
+        future::ready(result)
     }
 }
 
@@ -186,8 +249,9 @@ struct BumpStringVisitor<A: Allocator> {
     value_: BumpString<A>,
 }
 
-impl<'de, A> Visitor<'de> for BumpStringVisitor<A>
+impl<'de, 'alloc, Alloc, A> Visitor<'de, 'alloc, Alloc> for BumpStringVisitor<A>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     A: Allocator + Default,
 {
     type Value = BumpString<A>;
@@ -225,14 +289,16 @@ where
 }
 
 #[gen_may_cancel_future(DecodeBumpStringOp, pub, new(pub))]
-async fn decode_bump_string_async_<'de, 'a, A, D, C>(
+async fn decode_bump_string_async_<'alloc, 'de, 'a, Alloc, A, D, C>(
     de: D,
     cancel: C,
 ) -> Result<BumpString<A>, D::Error>
 where
     'de: 'a,
+    'alloc: 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
     A: Allocator + Default + 'a,
-    D: TrDecoder<'de> + 'a,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -243,27 +309,32 @@ where
     .await
 }
 
-impl<'de, A> TrDecodable<'de> for BumpString<A>
+impl<'de, 'alloc, Alloc, A> TrDecodable<'de, 'alloc, Alloc> for BumpString<A>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     A: Allocator + Default + 'de,
 {
     type DecodeAsync<'a, D>
-        = DecodeBumpStringOpAsync<'de, 'a, 'a, A, D>
+        = DecodeBumpStringOpAsync<'alloc, 'de, 'a, 'a, Alloc, A, D>
     where
         'de: 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
         A: Allocator + Default + 'a,
-        D: TrDecoder<'de> + 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
         A: Allocator + Default + 'a,
-        D: TrDecoder<'de> + 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        DecodeBumpStringOpAsync::<'de, 'a, 'a, A, D>::new(de)
+        DecodeBumpStringOpAsync::<'alloc, 'de, 'a, 'a, Alloc, A, D>::new(de)
     }
 }

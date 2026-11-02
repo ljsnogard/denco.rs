@@ -13,7 +13,10 @@ use core::{
 use std::{sync::Arc, task::Waker};
 
 use abs_cancel::TrMayCancel;
-use abs_denco::{de::TrDecodable, ser::TrEncodable};
+use abs_denco::{
+    de::{NoArena, TrDecodable},
+    ser::TrEncodable,
+};
 use denco_macro::{TrDecodable, TrEncodable};
 use mp_denco::{MpDecoder, MpEncoder};
 use serde::{Deserialize, Serialize};
@@ -71,9 +74,9 @@ where
 }
 
 /// 用 `mp_denco` 解码一个值。
-fn mp_decode_<'de, T>(bytes: &'de [u8]) -> T
+fn mp_decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
 {
     let mut input: &'de [u8] = bytes;
     block_on_(async { T::decode_async(MpDecoder::new(&mut input)).await })

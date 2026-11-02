@@ -11,7 +11,7 @@ use alloc::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
 use core::alloc::{Allocator, AllocatorClone};
 
 use super::{
-    TrDecodable, TrDecoder,
+    TrArena, TrDecodable, TrDecoder,
     collect_::{MapCollectVisitor, SeqCollectVisitor},
     sink_::{TrMapSink, TrSeqSink},
 };
@@ -88,23 +88,26 @@ where
 
 //-- ---- 解码实现 --//
 
-impl<'de, T, A> TrDecodable<'de> for VecDeque<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, A> TrDecodable<'de, 'alloc, Alloc>
+    for VecDeque<T, A>
 where
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
     A: Allocator + Default,
 {
     type DecodeAsync<'a, D>
         = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, VecDeque<T, A>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -112,23 +115,26 @@ where
     }
 }
 
-impl<'de, T, A> TrDecodable<'de> for LinkedList<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, A> TrDecodable<'de, 'alloc, Alloc>
+    for LinkedList<T, A>
 where
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
     A: Allocator + Default,
 {
     type DecodeAsync<'a, D>
         = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, LinkedList<T, A>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -136,23 +142,26 @@ where
     }
 }
 
-impl<'de, T, A> TrDecodable<'de> for BinaryHeap<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, A> TrDecodable<'de, 'alloc, Alloc>
+    for BinaryHeap<T, A>
 where
-    T: TrDecodable<'de> + 'de + Ord,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de + Ord,
     A: Allocator + Default,
 {
     type DecodeAsync<'a, D>
         = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, BinaryHeap<T, A>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -160,23 +169,26 @@ where
     }
 }
 
-impl<'de, T, A> TrDecodable<'de> for BTreeSet<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, A> TrDecodable<'de, 'alloc, Alloc>
+    for BTreeSet<T, A>
 where
-    T: TrDecodable<'de> + 'de + Ord,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de + Ord,
     A: AllocatorClone + Default,
 {
     type DecodeAsync<'a, D>
         = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, BTreeSet<T, A>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -184,24 +196,27 @@ where
     }
 }
 
-impl<'de, K, V, A> TrDecodable<'de> for BTreeMap<K, V, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, A> TrDecodable<'de, 'alloc, Alloc>
+    for BTreeMap<K, V, A>
 where
-    K: TrDecodable<'de> + 'de + Ord,
-    V: TrDecodable<'de> + 'de,
+    K: TrDecodable<'de, 'alloc, Alloc> + 'de + Ord,
+    V: TrDecodable<'de, 'alloc, Alloc> + 'de,
     A: AllocatorClone + Default,
 {
     type DecodeAsync<'a, D>
         = D::DecodeMapAsync<'a, MapCollectVisitor<K, V, BTreeMap<K, V, A>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
