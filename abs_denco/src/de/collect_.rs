@@ -2,7 +2,8 @@
 //!
 //! 目标容器用 [`TrSeqSink`] / [`TrMapSink`] 参数化：非 `Global` allocator 的
 //! 容器没有 `FromIterator` 实现（标准库只给默认 allocator 提供），所以这里
-//! 改成「先建空容器、再逐个插入」。allocator 实例由 `A: Default` 提供。
+//! 改成「先建空容器、再逐个插入」。allocator 实例由容器 `TrDecodable` 实现
+//! 从 decoder 的 arena 投影后传进来，不再使用 `A::default()`。
 
 use core::marker::PhantomData;
 
@@ -10,24 +11,34 @@ use abs_cancel::{TrCancellationToken, TrMayCancel};
 
 #[cfg(any(feature = "alloc-collections", feature = "std"))]
 use super::{MapAccess, MapAccessExt, sink_::TrMapSink};
-use super::{SeqAccess, TrDecodable, Visitor, sink_::TrSeqSink};
+use super::{SeqAccess, TrArena, TrDecodable, Visitor, sink_::TrSeqSink};
 
 /// 序列访问者：把元素收进任意实现 [`TrSeqSink`] 的容器。
 ///
+/// 它携带目标容器的 allocator 实例，因此同一个 visitor 构造出的容器与
+/// decoder 共享 arena（当 allocator 是 `&'alloc A` 时）。
+///
 /// 它出现在容器 `TrDecodable` 实现的 GAT 关联类型里，因此必须是 `pub`；
 /// 所在模块不对外导出，使用者无法直接命名它。
-pub struct SeqCollectVisitor<T, C>(PhantomData<(T, C)>);
+pub struct SeqCollectVisitor<T, C: TrSeqSink<T>> {
+    alloc_: C::Alloc,
+    marker_: PhantomData<(T, C)>,
+}
 
-impl<T, C> SeqCollectVisitor<T, C> {
-    /// 构造一个只携带类型参数的访问者。
-    pub(crate) const fn new_() -> Self {
-        Self(PhantomData)
+impl<T, C: TrSeqSink<T>> SeqCollectVisitor<T, C> {
+    /// 构造一个携带目标 allocator 的访问者。
+    pub(crate) fn new_(alloc: C::Alloc) -> Self {
+        Self {
+            alloc_: alloc,
+            marker_: PhantomData,
+        }
     }
 }
 
-impl<'de, T, C> Visitor<'de> for SeqCollectVisitor<T, C>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, C> Visitor<'de, 'alloc, Alloc>
+    for SeqCollectVisitor<T, C>
 where
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
     C: TrSeqSink<T>,
 {
     type Value = C;
@@ -42,29 +53,33 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de> + 'a,
+        A: SeqAccess<'de, 'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        DecodeSeqCollectOpAsync::<'de, 'a, 'a, T, C, A>::new(seq)
+        DecodeSeqCollectOpAsync::<'de, 'alloc, 'a, 'a, Alloc, T, C, A>::new(seq, self.alloc_)
     }
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeSeqCollectOp, pub)]
-async fn decode_seq_collect_async_<'de, 'a, T, C, A, TyTok>(
+async fn decode_seq_collect_async_<'de, 'alloc, 'a, Arena, T, C, A, TyTok>(
     mut seq: A,
+    alloc: C::Alloc,
     cancel: TyTok,
 ) -> Result<C, A::Error>
 where
+    Arena: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Arena> + 'de,
     C: TrSeqSink<T> + 'a,
-    A: SeqAccess<'de> + 'a,
+    C::Alloc: 'a,
+    A: SeqAccess<'de, 'alloc, Arena> + 'a,
     A::Error: 'a,
     TyTok: TrCancellationToken,
 {
-    let mut out = C::empty_();
+    let mut out = C::empty_(alloc);
     while let Option::Some(value) = seq
         .next_element_seed(PhantomData::<T>)
         .may_cancel_with(cancel.child_token())
@@ -77,23 +92,31 @@ where
 
 /// 映射访问者：把键值对收进任意实现 [`TrMapSink`] 的容器。
 ///
-/// 与 [`SeqCollectVisitor`] 相同，它需要出现在公开的 GAT 关联类型里。
+/// 与 [`SeqCollectVisitor`] 相同，它需要出现在公开的 GAT 关联类型里，并携带
+/// 目标容器的 allocator 实例。
 #[cfg(any(feature = "alloc-collections", feature = "std"))]
-pub struct MapCollectVisitor<K, V, C>(PhantomData<(K, V, C)>);
+pub struct MapCollectVisitor<K, V, C: TrMapSink<K, V>> {
+    alloc_: C::Alloc,
+    marker_: PhantomData<(K, V, C)>,
+}
 
 #[cfg(any(feature = "alloc-collections", feature = "std"))]
-impl<K, V, C> MapCollectVisitor<K, V, C> {
-    /// 构造一个只携带类型参数的访问者。
-    pub(crate) const fn new_() -> Self {
-        Self(PhantomData)
+impl<K, V, C: TrMapSink<K, V>> MapCollectVisitor<K, V, C> {
+    /// 构造一个携带目标 allocator 的访问者。
+    pub(crate) fn new_(alloc: C::Alloc) -> Self {
+        Self {
+            alloc_: alloc,
+            marker_: PhantomData,
+        }
     }
 }
 
 #[cfg(any(feature = "alloc-collections", feature = "std"))]
-impl<'de, K, V, C> Visitor<'de> for MapCollectVisitor<K, V, C>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, C> Visitor<'de, 'alloc, Alloc>
+    for MapCollectVisitor<K, V, C>
 where
-    K: TrDecodable<'de> + 'de,
-    V: TrDecodable<'de> + 'de,
+    K: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    V: TrDecodable<'de, 'alloc, Alloc> + 'de,
     C: TrMapSink<K, V>,
 {
     type Value = C;
@@ -108,31 +131,35 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: MapAccess<'de> + 'a,
+        A: MapAccess<'de, 'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        DecodeMapCollectOpAsync::<'de, 'a, 'a, K, V, C, A>::new(map)
+        DecodeMapCollectOpAsync::<'de, 'alloc, 'a, 'a, Alloc, K, V, C, A>::new(map, self.alloc_)
     }
 }
 
 #[cfg(any(feature = "alloc-collections", feature = "std"))]
 #[gen_mcf2::gen_may_cancel_future(DecodeMapCollectOp, pub)]
-async fn decode_map_collect_async_<'de, 'a, K, V, C, A, TyTok>(
+async fn decode_map_collect_async_<'de, 'alloc, 'a, Arena, K, V, C, A, TyTok>(
     mut map: A,
+    alloc: C::Alloc,
     cancel: TyTok,
 ) -> Result<C, A::Error>
 where
+    Arena: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    K: TrDecodable<'de> + 'de,
-    V: TrDecodable<'de> + 'de,
+    K: TrDecodable<'de, 'alloc, Arena> + 'de,
+    V: TrDecodable<'de, 'alloc, Arena> + 'de,
     C: TrMapSink<K, V> + 'a,
-    A: MapAccess<'de> + 'a,
+    C::Alloc: 'a,
+    A: MapAccess<'de, 'alloc, Arena> + 'a,
     A::Error: 'a,
     TyTok: TrCancellationToken,
 {
-    let mut out = C::empty_();
+    let mut out = C::empty_(alloc);
     while let Option::Some((key, value)) = map
         .next_entry::<K, V>()
         .may_cancel_with(cancel.child_token())

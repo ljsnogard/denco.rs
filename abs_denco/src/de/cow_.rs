@@ -11,37 +11,42 @@ use alloc::{borrow::Cow, string::String, vec::Vec};
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 
-use super::{TrDecodable, TrDecoder};
+use super::{TrArena, TrDecodable, TrDecoder};
 
 #[gen_mcf2::gen_may_cancel_future(DecodeCowStrOp, pub)]
-async fn decode_cow_str_async_<'de, 'a, 'f, D, TyTok>(
+async fn decode_cow_str_async_<'de, 'alloc, 'a, 'f, Alloc, D, TyTok>(
     de: D,
     cancel: TyTok,
 ) -> Result<Cow<'a, str>, D::Error>
 where
-    D: TrDecoder<'de> + 'f,
+    Alloc: TrArena<'alloc> + 'alloc,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'f,
     D::Error: 'f,
     TyTok: TrCancellationToken,
 {
-    let text = <String as TrDecodable<'de>>::decode_async(de)
+    let text = <String as TrDecodable<'de, 'alloc, Alloc>>::decode_async(de)
         .may_cancel_with(cancel)
         .await?;
     Result::Ok(Cow::Owned(text))
 }
 
-impl<'de, 'a> TrDecodable<'de> for Cow<'a, str> {
+impl<'de, 'alloc, 'a, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc>
+    for Cow<'a, str>
+{
     type DecodeAsync<'x, D>
-        = DecodeCowStrOpAsync<'de, 'a, 'x, 'x, D>
+        = DecodeCowStrOpAsync<'de, 'alloc, 'a, 'x, 'x, Alloc, D>
     where
         'de: 'x,
-        D: TrDecoder<'de> + 'x,
+        'alloc: 'x,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'x,
         D::Error: 'x,
         Self: 'x;
 
     fn decode_async<'x, D>(de: D) -> Self::DecodeAsync<'x, D>
     where
         'de: 'x,
-        D: TrDecoder<'de> + 'x,
+        'alloc: 'x,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'x,
         D::Error: 'x,
         Self: 'x,
     {
@@ -50,38 +55,42 @@ impl<'de, 'a> TrDecodable<'de> for Cow<'a, str> {
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeCowSliceOp, pub)]
-async fn decode_cow_slice_async_<'de, 'a, 'f, T, D, TyTok>(
+async fn decode_cow_slice_async_<'de, 'alloc, 'a, 'f, Alloc, T, D, TyTok>(
     de: D,
     cancel: TyTok,
 ) -> Result<Cow<'a, [T]>, D::Error>
 where
-    T: Clone + TrDecodable<'de> + 'de + 'a,
-    D: TrDecoder<'de> + 'f,
+    Alloc: TrArena<'alloc> + 'alloc,
+    T: Clone + TrDecodable<'de, 'alloc, Alloc> + 'de + 'a,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'f,
     D::Error: 'f,
     TyTok: TrCancellationToken,
 {
-    let items = <Vec<T> as TrDecodable<'de>>::decode_async(de)
+    let items = <Vec<T> as TrDecodable<'de, 'alloc, Alloc>>::decode_async(de)
         .may_cancel_with(cancel)
         .await?;
     Result::Ok(Cow::Owned(items))
 }
 
-impl<'de, 'a, T> TrDecodable<'de> for Cow<'a, [T]>
+impl<'de, 'alloc, 'a, Alloc: TrArena<'alloc> + 'alloc, T> TrDecodable<'de, 'alloc, Alloc>
+    for Cow<'a, [T]>
 where
-    T: Clone + TrDecodable<'de> + 'de + 'a,
+    T: Clone + TrDecodable<'de, 'alloc, Alloc> + 'de + 'a,
 {
     type DecodeAsync<'x, D>
-        = DecodeCowSliceOpAsync<'de, 'a, 'x, 'x, T, D>
+        = DecodeCowSliceOpAsync<'de, 'alloc, 'a, 'x, 'x, Alloc, T, D>
     where
         'de: 'x,
-        D: TrDecoder<'de> + 'x,
+        'alloc: 'x,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'x,
         D::Error: 'x,
         Self: 'x;
 
     fn decode_async<'x, D>(de: D) -> Self::DecodeAsync<'x, D>
     where
         'de: 'x,
-        D: TrDecoder<'de> + 'x,
+        'alloc: 'x,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'x,
         D::Error: 'x,
         Self: 'x,
     {

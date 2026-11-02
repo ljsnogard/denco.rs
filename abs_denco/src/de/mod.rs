@@ -6,7 +6,10 @@
 mod access_;
 #[cfg(feature = "alloc-collections")]
 mod alloc_collections_;
+mod alloc_source_;
+mod arena_;
 mod boxed_;
+mod bytes_;
 mod collect_;
 #[cfg(feature = "cow")]
 mod cow_;
@@ -22,13 +25,17 @@ mod rc_;
 mod sink_;
 #[cfg(feature = "std")]
 mod std_collections_;
+mod str_;
 mod visitor_;
 
 pub use access_::{EnumAccess, MapAccess, SeqAccess, VariantAccess};
+pub use alloc_source_::TrAllocSource;
+pub use arena_::{NoArena, TrArena, TrArenaBytes};
 pub use boxed_::BoxedMayCancel;
 pub use decodable_::{TrDecodable, TrDecodableOwned, TrDecodableSeed};
 pub use decoder_::TrDecoder;
-pub use error_::{Error, Expected, Unexpected};
+pub use error_::{Error, Expected, Unexpected, expected};
 pub use ext_::{EnumAccessExt, MapAccessExt, SeqAccessExt, VariantAccessExt};
 pub use ignored_any_::IgnoredAny;
+pub use str_::TrStrFromUtf8;
 pub use visitor_::Visitor;

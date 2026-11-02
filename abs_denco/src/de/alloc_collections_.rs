@@ -4,26 +4,29 @@
 //! 泛型 visitor；构造走 [`sink_`] 的「空容器 + 逐个插入」，因为非 `Global`
 //! allocator 的容器没有 `FromIterator` 实现。
 //!
-//! `A: Default` 用来提供解码时的 allocator 实例；`BTreeMap` / `BTreeSet`
-//! 额外要求 `A: AllocatorClone`。
+//! allocator 实例由 [`TrAllocSource`] 从 decoder 的 arena 投影得到：
+//! `Vec<T, &'alloc A>` 共享 decoder 的 arena，`Vec<T, Global>` 与 arena 无关。
+//! `BTreeMap` / `BTreeSet` 额外要求 allocator 实现 `AllocatorClone`。
 
 use alloc::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
 use core::alloc::{Allocator, AllocatorClone};
 
 use super::{
-    TrDecodable, TrDecoder,
+    TrAllocSource, TrArena, TrDecodable, TrDecoder,
     collect_::{MapCollectVisitor, SeqCollectVisitor},
     sink_::{TrMapSink, TrSeqSink},
 };
 
 //-- ---- 构造器：空容器 + 逐个插入 --//
 
-impl<T, A> TrSeqSink<T> for VecDeque<T, A>
+impl<T, CA> TrSeqSink<T> for VecDeque<T, CA>
 where
-    A: Allocator + Default,
+    CA: Allocator,
 {
-    fn empty_() -> Self {
-        VecDeque::new_in(A::default())
+    type Alloc = CA;
+
+    fn empty_(alloc: CA) -> Self {
+        VecDeque::new_in(alloc)
     }
 
     fn push_(&mut self, item: T) {
@@ -31,12 +34,14 @@ where
     }
 }
 
-impl<T, A> TrSeqSink<T> for LinkedList<T, A>
+impl<T, CA> TrSeqSink<T> for LinkedList<T, CA>
 where
-    A: Allocator + Default,
+    CA: Allocator,
 {
-    fn empty_() -> Self {
-        LinkedList::new_in(A::default())
+    type Alloc = CA;
+
+    fn empty_(alloc: CA) -> Self {
+        LinkedList::new_in(alloc)
     }
 
     fn push_(&mut self, item: T) {
@@ -44,13 +49,15 @@ where
     }
 }
 
-impl<T, A> TrSeqSink<T> for BinaryHeap<T, A>
+impl<T, CA> TrSeqSink<T> for BinaryHeap<T, CA>
 where
     T: Ord,
-    A: Allocator + Default,
+    CA: Allocator,
 {
-    fn empty_() -> Self {
-        BinaryHeap::new_in(A::default())
+    type Alloc = CA;
+
+    fn empty_(alloc: CA) -> Self {
+        BinaryHeap::new_in(alloc)
     }
 
     fn push_(&mut self, item: T) {
@@ -58,13 +65,15 @@ where
     }
 }
 
-impl<T, A> TrSeqSink<T> for BTreeSet<T, A>
+impl<T, CA> TrSeqSink<T> for BTreeSet<T, CA>
 where
     T: Ord,
-    A: AllocatorClone + Default,
+    CA: AllocatorClone,
 {
-    fn empty_() -> Self {
-        BTreeSet::new_in(A::default())
+    type Alloc = CA;
+
+    fn empty_(alloc: CA) -> Self {
+        BTreeSet::new_in(alloc)
     }
 
     fn push_(&mut self, item: T) {
@@ -72,13 +81,15 @@ where
     }
 }
 
-impl<K, V, A> TrMapSink<K, V> for BTreeMap<K, V, A>
+impl<K, V, CA> TrMapSink<K, V> for BTreeMap<K, V, CA>
 where
     K: Ord,
-    A: AllocatorClone + Default,
+    CA: AllocatorClone,
 {
-    fn empty_() -> Self {
-        BTreeMap::new_in(A::default())
+    type Alloc = CA;
+
+    fn empty_(alloc: CA) -> Self {
+        BTreeMap::new_in(alloc)
     }
 
     fn insert_(&mut self, key: K, value: V) {
@@ -88,123 +99,143 @@ where
 
 //-- ---- 解码实现 --//
 
-impl<'de, T, A> TrDecodable<'de> for VecDeque<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for VecDeque<T, CA>
 where
-    T: TrDecodable<'de> + 'de,
-    A: Allocator + Default,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, VecDeque<T, A>>>
+        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, VecDeque<T, CA>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        de.decode_seq(SeqCollectVisitor::<T, Self>::new_())
+        let alloc = CA::alloc_from(de.allocator());
+        de.decode_seq(SeqCollectVisitor::<T, Self>::new_(alloc))
     }
 }
 
-impl<'de, T, A> TrDecodable<'de> for LinkedList<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for LinkedList<T, CA>
 where
-    T: TrDecodable<'de> + 'de,
-    A: Allocator + Default,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, LinkedList<T, A>>>
+        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, LinkedList<T, CA>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        de.decode_seq(SeqCollectVisitor::<T, Self>::new_())
+        let alloc = CA::alloc_from(de.allocator());
+        de.decode_seq(SeqCollectVisitor::<T, Self>::new_(alloc))
     }
 }
 
-impl<'de, T, A> TrDecodable<'de> for BinaryHeap<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for BinaryHeap<T, CA>
 where
-    T: TrDecodable<'de> + 'de + Ord,
-    A: Allocator + Default,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de + Ord,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, BinaryHeap<T, A>>>
+        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, BinaryHeap<T, CA>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        de.decode_seq(SeqCollectVisitor::<T, Self>::new_())
+        let alloc = CA::alloc_from(de.allocator());
+        de.decode_seq(SeqCollectVisitor::<T, Self>::new_(alloc))
     }
 }
 
-impl<'de, T, A> TrDecodable<'de> for BTreeSet<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for BTreeSet<T, CA>
 where
-    T: TrDecodable<'de> + 'de + Ord,
-    A: AllocatorClone + Default,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de + Ord,
+    CA: TrAllocSource<'alloc, Alloc> + AllocatorClone + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, BTreeSet<T, A>>>
+        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, BTreeSet<T, CA>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        de.decode_seq(SeqCollectVisitor::<T, Self>::new_())
+        let alloc = CA::alloc_from(de.allocator());
+        de.decode_seq(SeqCollectVisitor::<T, Self>::new_(alloc))
     }
 }
 
-impl<'de, K, V, A> TrDecodable<'de> for BTreeMap<K, V, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, CA> TrDecodable<'de, 'alloc, Alloc>
+    for BTreeMap<K, V, CA>
 where
-    K: TrDecodable<'de> + 'de + Ord,
-    V: TrDecodable<'de> + 'de,
-    A: AllocatorClone + Default,
+    K: TrDecodable<'de, 'alloc, Alloc> + 'de + Ord,
+    V: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + AllocatorClone + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = D::DecodeMapAsync<'a, MapCollectVisitor<K, V, BTreeMap<K, V, A>>>
+        = D::DecodeMapAsync<'a, MapCollectVisitor<K, V, BTreeMap<K, V, CA>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        de.decode_map(MapCollectVisitor::<K, V, Self>::new_())
+        let alloc = CA::alloc_from(de.allocator());
+        de.decode_map(MapCollectVisitor::<K, V, Self>::new_(alloc))
     }
 }

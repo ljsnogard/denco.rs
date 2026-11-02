@@ -8,10 +8,12 @@ use core::marker::PhantomData;
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use gen_mcf2::gen_may_cancel_future;
 
-use super::{EnumAccess, MapAccess, SeqAccess, TrDecodable, VariantAccess};
+use super::{EnumAccess, MapAccess, SeqAccess, TrArena, TrDecodable, VariantAccess};
 
 /// [`SeqAccess`] 的便利方法。
-pub trait SeqAccessExt<'de>: SeqAccess<'de> + Sized {
+pub trait SeqAccessExt<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>:
+    SeqAccess<'de, 'alloc, Alloc> + Sized
+{
     /// 用 `T` 的 `TrDecodable` 实现读取下一个元素。
     ///
     /// # Errors
@@ -22,7 +24,8 @@ pub trait SeqAccessExt<'de>: SeqAccess<'de> + Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<T>, Self::Error>>
     where
         'de: 'a,
-        T: TrDecodable<'de> + 'a,
+        'alloc: 'a,
+        T: TrDecodable<'de, 'alloc, Alloc> + 'a,
         Self: 'a,
         Self::Error: 'a,
     {
@@ -30,18 +33,24 @@ pub trait SeqAccessExt<'de>: SeqAccess<'de> + Sized {
     }
 }
 
-impl<'de, A> SeqAccessExt<'de> for A where A: SeqAccess<'de> {}
+impl<'de, 'alloc, Alloc, A> SeqAccessExt<'de, 'alloc, Alloc> for A
+where
+    Alloc: TrArena<'alloc> + 'alloc,
+    A: SeqAccess<'de, 'alloc, Alloc>,
+{
+}
 
 #[gen_may_cancel_future(NextEntry)]
-async fn next_entry_async<'de, 'a, M, K, V, C>(
+async fn next_entry_async<'de, 'alloc, 'a, Alloc, M, K, V, C>(
     map: &'a mut M,
     cancel: C,
 ) -> Result<Option<(K, V)>, M::Error>
 where
     'de: 'a,
-    M: MapAccess<'de> + 'a,
-    K: TrDecodable<'de> + 'a,
-    V: TrDecodable<'de> + 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+    M: MapAccess<'de, 'alloc, Alloc> + 'a,
+    K: TrDecodable<'de, 'alloc, Alloc> + 'a,
+    V: TrDecodable<'de, 'alloc, Alloc> + 'a,
     M::Error: 'a,
     C: TrCancellationToken,
 {
@@ -60,7 +69,9 @@ where
 }
 
 /// [`MapAccess`] 的便利方法。
-pub trait MapAccessExt<'de>: MapAccess<'de> + Sized {
+pub trait MapAccessExt<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>:
+    MapAccess<'de, 'alloc, Alloc> + Sized
+{
     /// 读取下一个键。
     ///
     /// # Errors
@@ -71,7 +82,8 @@ pub trait MapAccessExt<'de>: MapAccess<'de> + Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<K>, Self::Error>>
     where
         'de: 'a,
-        K: TrDecodable<'de> + 'a,
+        'alloc: 'a,
+        K: TrDecodable<'de, 'alloc, Alloc> + 'a,
         Self: 'a,
         Self::Error: 'a,
     {
@@ -88,7 +100,8 @@ pub trait MapAccessExt<'de>: MapAccess<'de> + Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V, Self::Error>>
     where
         'de: 'a,
-        V: TrDecodable<'de> + 'a,
+        'alloc: 'a,
+        V: TrDecodable<'de, 'alloc, Alloc> + 'a,
         Self: 'a,
         Self::Error: 'a,
     {
@@ -105,19 +118,27 @@ pub trait MapAccessExt<'de>: MapAccess<'de> + Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<(K, V)>, Self::Error>>
     where
         'de: 'a,
-        K: TrDecodable<'de> + 'a,
-        V: TrDecodable<'de> + 'a,
+        'alloc: 'a,
+        K: TrDecodable<'de, 'alloc, Alloc> + 'a,
+        V: TrDecodable<'de, 'alloc, Alloc> + 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        NextEntryAsync::<'de, 'a, 'a, Self, K, V>::new(self)
+        NextEntryAsync::<'de, 'alloc, 'a, 'a, Alloc, Self, K, V>::new(self)
     }
 }
 
-impl<'de, M> MapAccessExt<'de> for M where M: MapAccess<'de> {}
+impl<'de, 'alloc, Alloc, M> MapAccessExt<'de, 'alloc, Alloc> for M
+where
+    Alloc: TrArena<'alloc> + 'alloc,
+    M: MapAccess<'de, 'alloc, Alloc>,
+{
+}
 
 /// [`EnumAccess`] 的便利方法。
-pub trait EnumAccessExt<'de>: EnumAccess<'de> + Sized {
+pub trait EnumAccessExt<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>:
+    EnumAccess<'de, 'alloc, Alloc> + Sized
+{
     /// 用 `V` 的 `TrDecodable` 实现读取变体名。
     ///
     /// # Errors
@@ -128,7 +149,8 @@ pub trait EnumAccessExt<'de>: EnumAccess<'de> + Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<(V, Self::Variant), Self::Error>>
     where
         'de: 'a,
-        V: TrDecodable<'de> + 'a,
+        'alloc: 'a,
+        V: TrDecodable<'de, 'alloc, Alloc> + 'a,
         Self: 'a,
         Self::Variant: 'a,
         Self::Error: 'a,
@@ -137,10 +159,17 @@ pub trait EnumAccessExt<'de>: EnumAccess<'de> + Sized {
     }
 }
 
-impl<'de, E> EnumAccessExt<'de> for E where E: EnumAccess<'de> {}
+impl<'de, 'alloc, Alloc, E> EnumAccessExt<'de, 'alloc, Alloc> for E
+where
+    Alloc: TrArena<'alloc> + 'alloc,
+    E: EnumAccess<'de, 'alloc, Alloc>,
+{
+}
 
 /// [`VariantAccess`] 的便利方法。
-pub trait VariantAccessExt<'de>: VariantAccess<'de> + Sized {
+pub trait VariantAccessExt<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>:
+    VariantAccess<'de, 'alloc, Alloc> + Sized
+{
     /// 用 `T` 的 `TrDecodable` 实现读取 newtype 变体的内容。
     ///
     /// # Errors
@@ -151,7 +180,8 @@ pub trait VariantAccessExt<'de>: VariantAccess<'de> + Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<T, Self::Error>>
     where
         'de: 'a,
-        T: TrDecodable<'de> + 'a,
+        'alloc: 'a,
+        T: TrDecodable<'de, 'alloc, Alloc> + 'a,
         Self: 'a,
         Self::Error: 'a,
     {
@@ -159,4 +189,9 @@ pub trait VariantAccessExt<'de>: VariantAccess<'de> + Sized {
     }
 }
 
-impl<'de, V> VariantAccessExt<'de> for V where V: VariantAccess<'de> {}
+impl<'de, 'alloc, Alloc, V> VariantAccessExt<'de, 'alloc, Alloc> for V
+where
+    Alloc: TrArena<'alloc> + 'alloc,
+    V: VariantAccess<'de, 'alloc, Alloc>,
+{
+}

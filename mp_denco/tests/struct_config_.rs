@@ -16,7 +16,10 @@ use core::{
 };
 use std::{collections::BTreeMap, task::Waker};
 
-use abs_denco::{de::TrDecodable, ser::TrEncodable};
+use abs_denco::{
+    de::{NoArena, TrDecodable},
+    ser::TrEncodable,
+};
 use denco_macro::{TrDecodable, TrEncodable};
 use mp_denco::{MpDecoder, MpEncoder};
 use serde::{Deserialize, Serialize};
@@ -72,9 +75,9 @@ where
 }
 
 /// 用默认解码器解码一个值。
-fn decode_<'de, T>(bytes: &'de [u8]) -> T
+fn decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
 {
     let mut input: &'de [u8] = bytes;
     block_on_(async { T::decode_async(MpDecoder::new(&mut input)).await }).expect("解码应当成功")

@@ -32,7 +32,10 @@ use std::{
 };
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
-use abs_denco::{de::TrDecodable, ser::TrEncodable};
+use abs_denco::{
+    de::{NoArena, TrAllocSource, TrDecodable},
+    ser::TrEncodable,
+};
 use mp_denco::{MpDecoder, MpEncoder};
 
 /// A1 / A2 两个 allocator 的分配次数。
@@ -88,6 +91,21 @@ unsafe impl Allocator for CountingAlloc {
 // 原实例等价；计数用的是全局静态量。
 unsafe impl AllocatorClone for CountingAlloc {}
 
+// 解码侧：这些测试 allocator 与 arena 无关，直接返回一个新实例。
+// 这正是 `TrAllocSource` 允许的「容器与 arena 无关」形态；共享 arena 的形态由
+// `&'alloc A` 的 blanket impl 提供。
+impl<'alloc, const ID: usize> TrAllocSource<'alloc, NoArena> for TaggedAlloc<ID> {
+    fn alloc_from(_arena: &'alloc NoArena) -> Self {
+        TaggedAlloc
+    }
+}
+
+impl<'alloc> TrAllocSource<'alloc, NoArena> for CountingAlloc {
+    fn alloc_from(_arena: &'alloc NoArena) -> Self {
+        CountingAlloc
+    }
+}
+
 /// 带容器字段的派生类型：验证 `denco_macro` 不需要为容器做任何特殊处理。
 ///
 /// A derived type with container fields: shows `denco_macro` needs no
@@ -142,9 +160,9 @@ where
 }
 
 /// 用 denco 从字节解码一个值。
-fn decode_<'de, T>(bytes: &'de [u8]) -> T
+fn decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
 {
     let mut input: &'de [u8] = bytes;
     block_on_(async {

@@ -17,7 +17,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use abs_buff::{TrBuffRead, TrBuffWrite};
 use abs_cancel::{NonCancellableToken, TrCancellationToken, TrMayCancel};
-use abs_denco::{de::TrDecodable, ser::TrEncodable};
+use abs_denco::{
+    de::{NoArena, TrDecodable},
+    ser::TrEncodable,
+};
 use buffex_tokio_adapt::{BuffRead, BuffWrite, DefaultAllocConfig};
 use cantok_rs::CancellationSource;
 use mp_denco::{MpDecoder, MpEncoder, MpError};
@@ -50,9 +53,9 @@ where
 /// 从适配器解码一个 owned 值。
 ///
 /// Decode one owned value from the adapter.
-async fn decode_from_<'de, T, R>(reader: &mut R) -> Result<T, MpError>
+async fn decode_from_<'de, 'alloc, T, R>(reader: &mut R) -> Result<T, MpError>
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
     R: TrBuffRead<u8>,
 {
     T::decode_async(MpDecoder::new(reader))
@@ -63,9 +66,12 @@ where
 /// 从适配器解码一个 owned 值，并允许外部取消。
 ///
 /// Decode one owned value from the adapter with an external cancellation token.
-async fn decode_from_cancellable_<'de, T, R, C>(reader: &mut R, cancel: C) -> Result<T, MpError>
+async fn decode_from_cancellable_<'de, 'alloc, T, R, C>(
+    reader: &mut R,
+    cancel: C,
+) -> Result<T, MpError>
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
     R: TrBuffRead<u8>,
     C: TrCancellationToken,
 {
@@ -216,9 +222,8 @@ async fn tcp_small_ring_multi_park_() {
         };
         let client = async {
             let stream = TcpStream::connect(addr).await.expect("连接服务端应当成功");
-            let mut rx =
-                BuffRead::<_, DefaultAllocConfig>::try_new(stream, 64, DefaultAllocConfig)
-                    .expect("读端容量合法");
+            let mut rx = BuffRead::<_, DefaultAllocConfig>::try_new(stream, 64, DefaultAllocConfig)
+                .expect("读端容量合法");
             let got: StrVal = decode_from_(&mut rx).await.expect("小环解码应当成功");
             assert_eq!(got, expected);
         };
@@ -501,8 +506,7 @@ async fn uds_cancel_partial_header_() {
             let source = CancellationSource::new();
             let token = source.child_token();
             let decode = async {
-                let out: Result<StrVal, MpError> =
-                    decode_from_cancellable_(&mut rx, token).await;
+                let out: Result<StrVal, MpError> = decode_from_cancellable_(&mut rx, token).await;
                 out
             };
             let cancel = async {

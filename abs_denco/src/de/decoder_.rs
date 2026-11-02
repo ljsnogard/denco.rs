@@ -2,7 +2,7 @@
 
 use abs_cancel::TrMayCancel;
 
-use super::{Error, Visitor};
+use super::{Error, TrArena, TrStrFromUtf8, Visitor};
 
 /// 一个可以从某种格式读出数据结构的解码器。
 ///
@@ -18,9 +18,20 @@ use super::{Error, Visitor};
 ///
 /// 所有 `decode_*` 方法在输入不合法、底层 I/O 失败，或实现者响应
 /// 取消信号时返回 `Self::Error`。
-pub trait TrDecoder<'de>: Sized {
+///
+/// `'alloc` 是 decoder 所携带 arena 的借用寿命，`Alloc` 是该 arena 的类型；
+/// 值版解码不依赖它们，引用版解码（`&'alloc mut T` / `Owning<'alloc, T>`）
+/// 通过 [`TrDecoder::allocator`] 取得分配器。不解码进 arena 的格式使用
+/// [`NoArena`](crate::de::NoArena)。
+pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 反序列化失败时产生的错误类型。
     type Error: Error;
+
+    /// 借用 decoder 携带的分配器；`'alloc` 是 arena 的借用寿命。
+    ///
+    /// 返回的引用不绑定 `&self` 的局部借用，因此调用方可以先取分配器、
+    /// 再把 `self` 移交给 `decode_async`。
+    fn allocator(&self) -> &'alloc Alloc;
 
     /// 驱动 `visitor`，由格式自行判断输入类型。
     ///
@@ -28,7 +39,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeAnyAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -41,7 +53,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_any<'a, V>(self, visitor: V) -> Self::DecodeAnyAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -52,7 +65,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeBoolAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -65,7 +79,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_bool<'a, V>(self, visitor: V) -> Self::DecodeBoolAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -76,7 +91,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeI8Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -89,7 +105,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_i8<'a, V>(self, visitor: V) -> Self::DecodeI8Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -100,7 +117,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeI16Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -113,7 +131,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_i16<'a, V>(self, visitor: V) -> Self::DecodeI16Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -124,7 +143,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeI32Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -137,7 +157,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_i32<'a, V>(self, visitor: V) -> Self::DecodeI32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -148,7 +169,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeI64Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -161,7 +183,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_i64<'a, V>(self, visitor: V) -> Self::DecodeI64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -172,7 +195,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeI128Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -185,7 +209,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_i128<'a, V>(self, visitor: V) -> Self::DecodeI128Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -196,7 +221,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeU8Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -209,7 +235,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_u8<'a, V>(self, visitor: V) -> Self::DecodeU8Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -220,7 +247,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeU16Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -233,7 +261,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_u16<'a, V>(self, visitor: V) -> Self::DecodeU16Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -244,7 +273,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeU32Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -257,7 +287,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_u32<'a, V>(self, visitor: V) -> Self::DecodeU32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -268,7 +299,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeU64Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -281,7 +313,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_u64<'a, V>(self, visitor: V) -> Self::DecodeU64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -292,7 +325,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeU128Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -305,7 +339,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_u128<'a, V>(self, visitor: V) -> Self::DecodeU128Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -316,7 +351,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeF32Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -329,7 +365,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_f32<'a, V>(self, visitor: V) -> Self::DecodeF32Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -340,7 +377,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeF64Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -353,7 +391,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_f64<'a, V>(self, visitor: V) -> Self::DecodeF64Async<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -364,7 +403,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeCharAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -377,7 +417,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_char<'a, V>(self, visitor: V) -> Self::DecodeCharAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -388,7 +429,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeStrAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -401,7 +443,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_str<'a, V>(self, visitor: V) -> Self::DecodeStrAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -412,7 +455,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeStringAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -425,7 +469,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_string<'a, V>(self, visitor: V) -> Self::DecodeStringAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -436,7 +481,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeBytesAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -449,7 +495,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_bytes<'a, V>(self, visitor: V) -> Self::DecodeBytesAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -460,7 +507,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeByteBufAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -473,7 +521,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_byte_buf<'a, V>(self, visitor: V) -> Self::DecodeByteBufAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -484,7 +533,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeOptionAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -497,7 +547,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_option<'a, V>(self, visitor: V) -> Self::DecodeOptionAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -508,7 +559,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeUnitAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -521,7 +573,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_unit<'a, V>(self, visitor: V) -> Self::DecodeUnitAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -532,7 +585,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeUnitStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -549,7 +603,8 @@ pub trait TrDecoder<'de>: Sized {
     ) -> Self::DecodeUnitStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -560,7 +615,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeNewtypeStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -577,7 +633,8 @@ pub trait TrDecoder<'de>: Sized {
     ) -> Self::DecodeNewtypeStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -588,7 +645,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeSeqAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -601,7 +659,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_seq<'a, V>(self, visitor: V) -> Self::DecodeSeqAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -612,7 +671,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeTupleAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -625,7 +685,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_tuple<'a, V>(self, len: usize, visitor: V) -> Self::DecodeTupleAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -636,7 +697,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeTupleStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -654,7 +716,8 @@ pub trait TrDecoder<'de>: Sized {
     ) -> Self::DecodeTupleStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -665,7 +728,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeMapAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -678,7 +742,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_map<'a, V>(self, visitor: V) -> Self::DecodeMapAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -689,7 +754,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -707,7 +773,8 @@ pub trait TrDecoder<'de>: Sized {
     ) -> Self::DecodeStructAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -718,7 +785,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeEnumAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -736,7 +804,8 @@ pub trait TrDecoder<'de>: Sized {
     ) -> Self::DecodeEnumAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -747,7 +816,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeIdentifierAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -760,7 +830,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_identifier<'a, V>(self, visitor: V) -> Self::DecodeIdentifierAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -771,7 +842,8 @@ pub trait TrDecoder<'de>: Sized {
     type DecodeIgnoredAnyAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -784,7 +856,8 @@ pub trait TrDecoder<'de>: Sized {
     fn decode_ignored_any<'a, V>(self, visitor: V) -> Self::DecodeIgnoredAnyAsync<'a, V>
     where
         'de: 'a,
-        V: Visitor<'de> + 'a,
+        'alloc: 'a,
+        V: Visitor<'de, 'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -794,5 +867,36 @@ pub trait TrDecoder<'de>: Sized {
     /// 默认返回 `true`。纯同步判断，不需要取消令牌。
     fn is_human_readable(&self) -> bool {
         true
+    }
+
+    /// 读取一个字符串并交给 `S` 构造；`S` 可以借用 decoder 的 arena。
+    ///
+    /// 与其它 `decode_*` 不同，本方法用 RPITIT 而不是 GAT：返回的 future
+    /// 从不需要被调用方命名（`&'alloc str` 的 `TrDecodable` 实现会用自己的
+    /// 命名 helper 包住它），而 GAT 没有默认关联类型，新增 GAT 会破坏所有
+    /// 既有 [`TrDecoder`] 实现。这里的默认实现返回「不支持」错误；需要
+    /// arena 字符串的格式（`MpDecoder` / `JsonDecoder`）覆盖它。
+    ///
+    /// `S: TrStrFromUtf8` 的构造错误由实现方用 [`Error::custom`] 映射为
+    /// `Self::Error`。
+    ///
+    /// # Errors
+    ///
+    /// 默认实现返回「不支持」错误；覆盖实现还会在输入不合法、底层读取失败、
+    /// arena 分配失败或响应取消时返回错误。
+    fn decode_string_as<'a, S>(
+        self,
+    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<S, Self::Error>>
+    where
+        'de: 'a,
+        'alloc: 'a,
+        S: TrStrFromUtf8<'alloc, Alloc> + 'a,
+        Self: 'a,
+        Self::Error: 'a,
+    {
+        let _ = self;
+        core::future::ready(Err(<Self::Error as Error>::custom(
+            "decode_string_as is not supported by this decoder",
+        )))
     }
 }

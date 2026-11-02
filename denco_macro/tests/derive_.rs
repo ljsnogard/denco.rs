@@ -13,7 +13,7 @@ use std::task::Waker;
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
 use abs_denco::{
-    de::{self, TrDecodable, TrDecoder, Visitor},
+    de::{self, NoArena, TrArena, TrDecodable, TrDecoder, Visitor},
     ser::{TrEncodable, TrEncoder},
 };
 use denco_macro::{TrDecodable, TrEncodable};
@@ -74,9 +74,9 @@ where
     storage
 }
 
-fn decode_<'de, T>(bytes: &'de [u8]) -> T
+fn decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
 where
-    T: TrDecodable<'de>,
+    T: TrDecodable<'de, 'alloc, NoArena>,
 {
     let mut input: &'de [u8] = bytes;
     block_on_(async {
@@ -115,7 +115,7 @@ impl TrEncodable for U64Val {
 
 struct U64ValVisitor;
 
-impl<'de> Visitor<'de> for U64ValVisitor {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for U64ValVisitor {
     type Value = U64Val;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -136,29 +136,38 @@ impl<'de> Visitor<'de> for U64ValVisitor {
 }
 
 #[gen_may_cancel_future(DecodeU64ValOp)]
-pub async fn decode_u64_val_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<U64Val, D::Error>
+pub async fn decode_u64_val_async<'de, 'alloc, 'a, Alloc, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<U64Val, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: abs_cancel::TrCancellationToken,
 {
     de.decode_u64(U64ValVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de> TrDecodable<'de> for U64Val {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for U64Val {
     type DecodeAsync<'a, D>
-        = DecodeU64ValOpAsync<'de, 'a, 'a, D>
+        = DecodeU64ValOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -192,7 +201,7 @@ impl TrEncodable for StrVal {
 
 struct StrValVisitor;
 
-impl<'de> Visitor<'de> for StrValVisitor {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for StrValVisitor {
     type Value = StrVal;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -213,10 +222,15 @@ impl<'de> Visitor<'de> for StrValVisitor {
 }
 
 #[gen_may_cancel_future(DecodeStrValOp)]
-pub async fn decode_str_val_async<'de, 'a, D, C>(de: D, cancel: C) -> Result<StrVal, D::Error>
+pub async fn decode_str_val_async<'de, 'alloc, 'a, Alloc, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<StrVal, D::Error>
 where
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    'alloc: 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: abs_cancel::TrCancellationToken,
 {
@@ -225,19 +239,23 @@ where
         .await
 }
 
-impl<'de> TrDecodable<'de> for StrVal {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for StrVal {
     type DecodeAsync<'a, D>
-        = DecodeStrValOpAsync<'de, 'a, 'a, D>
+        = DecodeStrValOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -285,7 +303,8 @@ where
 
 struct HandKeyVisitor<S>(PhantomData<S>);
 
-impl<'de, S> Visitor<'de> for HandKeyVisitor<S>
+impl<'de, 'alloc, S, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+    for HandKeyVisitor<S>
 where
     S: Borrow<str> + From<String> + 'de,
 {
@@ -309,11 +328,16 @@ where
 }
 
 #[gen_may_cancel_future(DecodeHandKeyOp)]
-async fn decode_hand_key_async<'de, 'a, S, D, C>(de: D, cancel: C) -> Result<HandKey<S>, D::Error>
+async fn decode_hand_key_async<'de, 'alloc, 'a, Alloc, S, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<HandKey<S>, D::Error>
 where
     'de: 'a,
+    'alloc: 'a,
     S: Borrow<str> + From<String> + 'de + 'a,
-    D: TrDecoder<'de> + 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: abs_cancel::TrCancellationToken,
 {
@@ -322,22 +346,26 @@ where
         .await
 }
 
-impl<'de, S> TrDecodable<'de> for HandKey<S>
+impl<'de, 'alloc, S, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for HandKey<S>
 where
     S: Borrow<str> + From<String> + 'de,
 {
     type DecodeAsync<'a, D>
-        = DecodeHandKeyOpAsync<'de, 'a, 'a, S, D>
+        = DecodeHandKeyOpAsync<'de, 'alloc, 'a, 'a, Alloc, S, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        Alloc: TrArena<'alloc> + 'alloc,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -734,4 +762,67 @@ fn enum_struct_variant_skip_() {
             b: U64Val(2),
         }
     );
+}
+
+/// 测试目标：derive 接受生命周期参数，并把解码侧的生命周期绑定到 arena。
+/// Test goal: derive accepts lifetime parameters and binds them to the arena on
+/// the decode side.
+///
+/// - 手段：对 `LifetimeRecord<'alloc>` 同时派生编解码，并只做一次编码。
+///   / How: derive both codecs for `LifetimeRecord<'alloc>` and encode once.
+/// - 判断：编码成功且非空；解码 impl 的生成代码也通过编译（借用字段的
+///   `TrDecodable` 约束在 impl 上）。
+///   / What: encoding succeeds and is non-empty; the generated decode impl also
+///   compiles (borrowing-field bounds live on the impl).
+#[derive(Debug, PartialEq, denco_macro::TrEncodable, denco_macro::TrDecodable)]
+struct LifetimeRecord<'alloc> {
+    name_: &'alloc str,
+    maybe_: Option<&'alloc str>,
+}
+
+/// 测试目标：生命周期类型的编码可用。
+/// Test goal: encoding a lifetime-carrying type works.
+///
+/// - 手段：编码 `LifetimeRecord { name_: "hello", maybe_: Some("world") }`。
+///   / How: encode `LifetimeRecord { name_: "hello", maybe_: Some("world") }`.
+/// - 判断：输出非空，且再次解码为 `String` 字段的结构（这里只断言非空）。
+///   / What: the output is non-empty (the full arena decode is covered by
+///   `denco_bumpalo/tests/lifetime_.rs`).
+#[test]
+fn lifetime_params_encode_() {
+    let value = LifetimeRecord {
+        name_: "hello",
+        maybe_: Some("world"),
+    };
+    let bytes = encode_(&value);
+    assert!(!bytes.is_empty());
+}
+
+/// 带生命周期的枚举：覆盖变体字段的借用约束。
+/// A lifetime-carrying enum covering borrowing bounds on variant fields.
+#[derive(Debug, PartialEq, denco_macro::TrEncodable, denco_macro::TrDecodable)]
+enum LifetimeEnum<'alloc> {
+    Empty,
+    Text(&'alloc str),
+    Pair(&'alloc str, &'alloc [u8]),
+}
+
+/// 测试目标：生命周期枚举的编码可用（解码 impl 也通过编译）。
+/// Test goal: encoding a lifetime-carrying enum works and its decode impl compiles.
+///
+/// - 手段：编码三个变体。
+///   / How: encode all three variants.
+/// - 判断：输出非空；完整的 arena 解码由 `denco_bumpalo/tests/lifetime_.rs` 覆盖。
+///   / What: outputs are non-empty; full arena decoding is covered by
+///   `denco_bumpalo/tests/lifetime_.rs`.
+#[test]
+fn lifetime_enum_encode_() {
+    for value in [
+        LifetimeEnum::Empty,
+        LifetimeEnum::Text("hello"),
+        LifetimeEnum::Pair("pair", &[1, 2]),
+    ] {
+        let bytes = encode_(&value);
+        assert!(!bytes.is_empty());
+    }
 }

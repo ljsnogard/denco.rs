@@ -7,17 +7,18 @@ use alloc::{string::String, vec::Vec};
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use gen_mcf2::gen_may_cancel_future;
 
-use super::{EnumAccess, Error, MapAccess, SeqAccess, TrDecoder, Unexpected};
+use super::{EnumAccess, Error, Expected, MapAccess, SeqAccess, TrArena, TrDecoder, Unexpected};
 
 #[gen_may_cancel_future(VisitString)]
-async fn visit_string_async<'de, 'a, V, E, C>(
+async fn visit_string_async<'de, 'alloc, 'a, Alloc, V, E, C>(
     visitor: V,
     v: String,
     cancel: C,
 ) -> Result<V::Value, E>
 where
     'de: 'a,
-    V: Visitor<'de> + 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+    V: Visitor<'de, 'alloc, Alloc> + 'a,
     V::Value: 'a,
     E: Error + 'a,
     C: TrCancellationToken,
@@ -26,14 +27,15 @@ where
 }
 
 #[gen_may_cancel_future(VisitByteBuf)]
-async fn visit_byte_buf_async<'de, 'a, V, E, C>(
+async fn visit_byte_buf_async<'de, 'alloc, 'a, Alloc, V, E, C>(
     visitor: V,
     v: Vec<u8>,
     cancel: C,
 ) -> Result<V::Value, E>
 where
     'de: 'a,
-    V: Visitor<'de> + 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+    V: Visitor<'de, 'alloc, Alloc> + 'a,
     V::Value: 'a,
     E: Error + 'a,
     C: TrCancellationToken,
@@ -45,10 +47,15 @@ where
 }
 
 #[gen_may_cancel_future(VisitChar)]
-async fn visit_char_async<'de, 'a, V, E, C>(visitor: V, v: char, cancel: C) -> Result<V::Value, E>
+async fn visit_char_async<'de, 'alloc, 'a, Alloc, V, E, C>(
+    visitor: V,
+    v: char,
+    cancel: C,
+) -> Result<V::Value, E>
 where
     'de: 'a,
-    V: Visitor<'de> + 'a,
+    Alloc: TrArena<'alloc> + 'alloc,
+    V: Visitor<'de, 'alloc, Alloc> + 'a,
     V::Value: 'a,
     E: Error + 'a,
     C: TrCancellationToken,
@@ -73,12 +80,60 @@ where
 ///
 /// 每个 `visit_*` 方法在输入类型不符时返回 `E`。默认实现总是返回
 /// [`Unexpected`] 描述的类型错误。
-pub trait Visitor<'de>: Sized {
+pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 访问者最终产生的值。
     type Value;
 
     /// 描述本访问者期望接收什么。
     fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result;
+
+    /// 返回一个可传给 [`Error::invalid_type`] 等方法的 [`Expected`] 视图。
+    ///
+    /// serde 用户请注意：serde 的 `Visitor` 只有 `'de`，因此 serde 能提供
+    /// `impl<V: Visitor<'de>> Expected for V`，手写 visitor 里直接写 `&self`
+    /// 就能当 `&dyn Expected`。denco 的 `Visitor<'de, 'alloc, Alloc>` 多了
+    /// `Alloc` 类型参数，同样的 blanket impl 会触发 **E0207**（类型参数未被
+    /// 约束），所以必须显式适配。
+    ///
+    /// 本方法适合**参数已确定**的泛型 helper（`V: Visitor<'de, 'alloc, Alloc>`
+    /// 在作用域内）。visitor impl 的 `visit_*` 方法体里，`self` 的类型通常不
+    /// 携带 `Alloc`，此时 `self.expected()` 会因参数推断歧义报 E0282；请改用
+    /// 自由函数 `&expected::<Alloc, _>(&self)`（把 `Alloc` 换成 impl 的参数名）
+    /// 或全限定 `<Self as Visitor<'de, 'alloc, Alloc>>::expected(self)`，也可以
+    /// 直接传静态描述字符串。详见 [`Expected`] 文档。
+    ///
+    /// ```
+    /// use abs_denco::de::{Error, Expected, TrArena, Unexpected, Visitor, expected};
+    ///
+    /// struct MyVisitor;
+    ///
+    /// impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+    ///     for MyVisitor
+    /// {
+    ///     type Value = ();
+    ///
+    ///     fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    ///         f.write_str("a number")
+    ///     }
+    /// }
+    ///
+    /// fn takes(_: &dyn Expected) {}
+    ///
+    /// fn demo<'de, 'alloc, Alloc, V>(v: &V)
+    /// where
+    ///     V: Visitor<'de, 'alloc, Alloc>,
+    ///     Alloc: TrArena<'alloc> + 'alloc,
+    /// {
+    ///     // 泛型 helper 中两种写法都能推断
+    ///     takes(&v.expected());
+    ///     takes(&expected(v));
+    /// }
+    /// ```
+    fn expected(&self) -> impl Expected + '_ {
+        let format: fn(&Self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result =
+            |v, f| v.expecting(f);
+        super::error_::VisitorExpected::new_(self, format)
+    }
 
     /// 输入包含一个 `bool`。
     ///
@@ -95,7 +150,10 @@ pub trait Visitor<'de>: Sized {
         E: Error + 'a,
     {
         let _ = v;
-        future::ready(Err(<E as Error>::invalid_type(Unexpected::Bool(v), &self)))
+        future::ready(Err(<E as Error>::invalid_type(
+            Unexpected::Bool(v),
+            &super::error_::expected::<Alloc, _>(&self),
+        )))
     }
 
     /// 输入包含一个 `i8`；默认转发到 [`Visitor::visit_i64`]。
@@ -154,7 +212,7 @@ pub trait Visitor<'de>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Signed(v),
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -175,7 +233,7 @@ pub trait Visitor<'de>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Other("i128"),
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -235,7 +293,7 @@ pub trait Visitor<'de>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Unsigned(v),
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -256,7 +314,7 @@ pub trait Visitor<'de>: Sized {
         let _ = v;
         future::ready(Err(<E as Error>::invalid_type(
             Unexpected::Other("u128"),
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -288,7 +346,10 @@ pub trait Visitor<'de>: Sized {
         E: Error + 'a,
     {
         let _ = v;
-        future::ready(Err(<E as Error>::invalid_type(Unexpected::Float(v), &self)))
+        future::ready(Err(<E as Error>::invalid_type(
+            Unexpected::Float(v),
+            &super::error_::expected::<Alloc, _>(&self),
+        )))
     }
 
     /// 输入包含一个 `char`。
@@ -305,8 +366,9 @@ pub trait Visitor<'de>: Sized {
         Self::Value: 'a,
         E: Error + 'a,
         'de: 'a,
+        'alloc: 'a,
     {
-        VisitCharAsync::<'de, 'a, 'a, Self, E>::new(self, v)
+        VisitCharAsync::<'de, 'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
     }
 
     /// 输入包含一个字符串切片。
@@ -324,7 +386,10 @@ pub trait Visitor<'de>: Sized {
         E: Error + 'a,
     {
         let _ = v;
-        future::ready(Err(<E as Error>::invalid_type(Unexpected::Str(v), &self)))
+        future::ready(Err(<E as Error>::invalid_type(
+            Unexpected::Str(v),
+            &super::error_::expected::<Alloc, _>(&self),
+        )))
     }
 
     /// 输入包含一个与 `'de` 同寿命的字符串；默认转发到
@@ -356,8 +421,9 @@ pub trait Visitor<'de>: Sized {
         Self::Value: 'a,
         E: Error + 'a,
         'de: 'a,
+        'alloc: 'a,
     {
-        VisitStringAsync::<'de, 'a, 'a, Self, E>::new(self, v)
+        VisitStringAsync::<'de, 'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
     }
 
     /// 输入包含一段字节切片。
@@ -375,7 +441,10 @@ pub trait Visitor<'de>: Sized {
         E: Error + 'a,
     {
         let _ = v;
-        future::ready(Err(<E as Error>::invalid_type(Unexpected::Bytes(v), &self)))
+        future::ready(Err(<E as Error>::invalid_type(
+            Unexpected::Bytes(v),
+            &super::error_::expected::<Alloc, _>(&self),
+        )))
     }
 
     /// 输入包含一段与 `'de` 同寿命的字节；默认转发到
@@ -407,8 +476,9 @@ pub trait Visitor<'de>: Sized {
         Self::Value: 'a,
         E: Error + 'a,
         'de: 'a,
+        'alloc: 'a,
     {
-        VisitByteBufAsync::<'de, 'a, 'a, Self, E>::new(self, v)
+        VisitByteBufAsync::<'de, 'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
     }
 
     /// 输入包含 `None`。
@@ -422,7 +492,10 @@ pub trait Visitor<'de>: Sized {
         Self::Value: 'a,
         E: Error + 'a,
     {
-        future::ready(Err(<E as Error>::invalid_type(Unexpected::Option, &self)))
+        future::ready(Err(<E as Error>::invalid_type(
+            Unexpected::Option,
+            &super::error_::expected::<Alloc, _>(&self),
+        )))
     }
 
     /// 输入包含 `Some(deserializer)`。
@@ -437,14 +510,15 @@ pub trait Visitor<'de>: Sized {
     where
         Self: 'a,
         'de: 'a,
+        'alloc: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de> + 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
     {
         let _ = deserializer;
         future::ready(Err(<D::Error as Error>::invalid_type(
             Unexpected::Option,
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -459,7 +533,10 @@ pub trait Visitor<'de>: Sized {
         Self::Value: 'a,
         E: Error + 'a,
     {
-        future::ready(Err(<E as Error>::invalid_type(Unexpected::Unit, &self)))
+        future::ready(Err(<E as Error>::invalid_type(
+            Unexpected::Unit,
+            &super::error_::expected::<Alloc, _>(&self),
+        )))
     }
 
     /// 输入包含一个 newtype 结构体。
@@ -474,14 +551,15 @@ pub trait Visitor<'de>: Sized {
     where
         Self: 'a,
         'de: 'a,
+        'alloc: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de> + 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
     {
         let _ = deserializer;
         future::ready(Err(<D::Error as Error>::invalid_type(
             Unexpected::NewtypeStruct,
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -497,14 +575,15 @@ pub trait Visitor<'de>: Sized {
     where
         Self: 'a,
         'de: 'a,
+        'alloc: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de> + 'a,
+        A: SeqAccess<'de, 'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
         let _ = seq;
         future::ready(Err(<A::Error as Error>::invalid_type(
             Unexpected::Seq,
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -520,14 +599,15 @@ pub trait Visitor<'de>: Sized {
     where
         Self: 'a,
         'de: 'a,
+        'alloc: 'a,
         Self::Value: 'a,
-        A: MapAccess<'de> + 'a,
+        A: MapAccess<'de, 'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
         let _ = map;
         future::ready(Err(<A::Error as Error>::invalid_type(
             Unexpected::Map,
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 
@@ -543,14 +623,15 @@ pub trait Visitor<'de>: Sized {
     where
         Self: 'a,
         'de: 'a,
+        'alloc: 'a,
         Self::Value: 'a,
-        A: EnumAccess<'de> + 'a,
+        A: EnumAccess<'de, 'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
         let _ = data;
         future::ready(Err(<A::Error as Error>::invalid_type(
             Unexpected::Enum,
-            &self,
+            &super::error_::expected::<Alloc, _>(&self),
         )))
     }
 }

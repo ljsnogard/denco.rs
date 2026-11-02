@@ -3,19 +3,22 @@
 #[cfg(target_has_atomic = "ptr")]
 use alloc::sync::Arc;
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::{alloc::Allocator, future, marker::PhantomData};
+use core::{future, marker::PhantomData};
 
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 
 use super::{
-    Error, SeqAccess, TrDecodable, TrDecoder, Unexpected, Visitor, collect_::SeqCollectVisitor,
+    Error, SeqAccess, TrAllocSource, TrArena, TrDecodable, TrDecoder, Unexpected, Visitor,
+    collect_::SeqCollectVisitor,
 };
 
 macro_rules! impl_decode_unsigned_ {
     ($ty:ty, $visitor:ident, $op:ident, $async_ty:ident, $fn:ident, $decode:ident, $expect:literal) => {
         struct $visitor;
 
-        impl<'de> Visitor<'de> for $visitor {
+        impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+            for $visitor
+        {
             type Value = $ty;
 
             fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -35,7 +38,7 @@ macro_rules! impl_decode_unsigned_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Unsigned(value),
-                        &self,
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -54,7 +57,7 @@ macro_rules! impl_decode_unsigned_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Other("u128"),
-                        &self,
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -62,29 +65,33 @@ macro_rules! impl_decode_unsigned_ {
         }
 
         #[gen_mcf2::gen_may_cancel_future($op)]
-        pub async fn $fn<'de, 'a, D, C>(de: D, cancel: C) -> Result<$ty, D::Error>
+        pub async fn $fn<'de, 'alloc, 'a, Alloc, D, C>(de: D, cancel: C) -> Result<$ty, D::Error>
         where
             'de: 'a,
-            D: TrDecoder<'de> + 'a,
+            'alloc: 'a,
+            Alloc: TrArena<'alloc> + 'alloc,
+            D: TrDecoder<'de, 'alloc, Alloc> + 'a,
             D::Error: 'a,
             C: TrCancellationToken,
         {
             de.$decode($visitor).may_cancel_with(cancel).await
         }
 
-        impl<'de> TrDecodable<'de> for $ty {
+        impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for $ty {
             type DecodeAsync<'a, D>
-                = $async_ty<'de, 'a, 'a, D>
+                = $async_ty<'de, 'alloc, 'a, 'a, Alloc, D>
             where
                 'de: 'a,
-                D: TrDecoder<'de> + 'a,
+                'alloc: 'a,
+                D: TrDecoder<'de, 'alloc, Alloc> + 'a,
                 D::Error: 'a,
                 Self: 'a;
 
             fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
             where
                 'de: 'a,
-                D: TrDecoder<'de> + 'a,
+                'alloc: 'a,
+                D: TrDecoder<'de, 'alloc, Alloc> + 'a,
                 D::Error: 'a,
                 Self: 'a,
             {
@@ -98,7 +105,9 @@ macro_rules! impl_decode_signed_ {
     ($ty:ty, $visitor:ident, $op:ident, $async_ty:ident, $fn:ident, $decode:ident, $expect:literal) => {
         struct $visitor;
 
-        impl<'de> Visitor<'de> for $visitor {
+        impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+            for $visitor
+        {
             type Value = $ty;
 
             fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -118,7 +127,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Signed(value),
-                        &self,
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -137,7 +146,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Unsigned(value),
-                        &self,
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -156,7 +165,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Other("i128"),
-                        &self,
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -175,7 +184,7 @@ macro_rules! impl_decode_signed_ {
                     Ok(value) => Ok(value),
                     Err(_) => Err(<E as Error>::invalid_value(
                         Unexpected::Other("u128"),
-                        &self,
+                        &super::error_::expected::<Alloc, _>(&self),
                     )),
                 };
                 future::ready(result)
@@ -183,29 +192,33 @@ macro_rules! impl_decode_signed_ {
         }
 
         #[gen_mcf2::gen_may_cancel_future($op)]
-        pub async fn $fn<'de, 'a, D, C>(de: D, cancel: C) -> Result<$ty, D::Error>
+        pub async fn $fn<'de, 'alloc, 'a, Alloc, D, C>(de: D, cancel: C) -> Result<$ty, D::Error>
         where
             'de: 'a,
-            D: TrDecoder<'de> + 'a,
+            'alloc: 'a,
+            Alloc: TrArena<'alloc> + 'alloc,
+            D: TrDecoder<'de, 'alloc, Alloc> + 'a,
             D::Error: 'a,
             C: TrCancellationToken,
         {
             de.$decode($visitor).may_cancel_with(cancel).await
         }
 
-        impl<'de> TrDecodable<'de> for $ty {
+        impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for $ty {
             type DecodeAsync<'a, D>
-                = $async_ty<'de, 'a, 'a, D>
+                = $async_ty<'de, 'alloc, 'a, 'a, Alloc, D>
             where
                 'de: 'a,
-                D: TrDecoder<'de> + 'a,
+                'alloc: 'a,
+                D: TrDecoder<'de, 'alloc, Alloc> + 'a,
                 D::Error: 'a,
                 Self: 'a;
 
             fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
             where
                 'de: 'a,
-                D: TrDecoder<'de> + 'a,
+                'alloc: 'a,
+                D: TrDecoder<'de, 'alloc, Alloc> + 'a,
                 D::Error: 'a,
                 Self: 'a,
             {
@@ -219,7 +232,9 @@ macro_rules! impl_decode_float_ {
     ($ty:ty, $visitor:ident, $op:ident, $async_ty:ident, $fn:ident, $decode:ident, $expect:literal) => {
         struct $visitor;
 
-        impl<'de> Visitor<'de> for $visitor {
+        impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
+            for $visitor
+        {
             type Value = $ty;
 
             fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -240,29 +255,33 @@ macro_rules! impl_decode_float_ {
         }
 
         #[gen_mcf2::gen_may_cancel_future($op)]
-        pub async fn $fn<'de, 'a, D, C>(de: D, cancel: C) -> Result<$ty, D::Error>
+        pub async fn $fn<'de, 'alloc, 'a, Alloc, D, C>(de: D, cancel: C) -> Result<$ty, D::Error>
         where
             'de: 'a,
-            D: TrDecoder<'de> + 'a,
+            'alloc: 'a,
+            Alloc: TrArena<'alloc> + 'alloc,
+            D: TrDecoder<'de, 'alloc, Alloc> + 'a,
             D::Error: 'a,
             C: TrCancellationToken,
         {
             de.$decode($visitor).may_cancel_with(cancel).await
         }
 
-        impl<'de> TrDecodable<'de> for $ty {
+        impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for $ty {
             type DecodeAsync<'a, D>
-                = $async_ty<'de, 'a, 'a, D>
+                = $async_ty<'de, 'alloc, 'a, 'a, Alloc, D>
             where
                 'de: 'a,
-                D: TrDecoder<'de> + 'a,
+                'alloc: 'a,
+                D: TrDecoder<'de, 'alloc, Alloc> + 'a,
                 D::Error: 'a,
                 Self: 'a;
 
             fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
             where
                 'de: 'a,
-                D: TrDecoder<'de> + 'a,
+                'alloc: 'a,
+                D: TrDecoder<'de, 'alloc, Alloc> + 'a,
                 D::Error: 'a,
                 Self: 'a,
             {
@@ -385,7 +404,7 @@ impl_decode_unsigned_!(
 
 struct BoolVisitor;
 
-impl<'de> Visitor<'de> for BoolVisitor {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for BoolVisitor {
     type Value = bool;
 
     fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -406,29 +425,35 @@ impl<'de> Visitor<'de> for BoolVisitor {
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeBoolOp)]
-pub async fn decode_bool_op_async_<'de, 'a, D, C>(de: D, cancel: C) -> Result<bool, D::Error>
+pub async fn decode_bool_op_async_<'de, 'alloc, 'a, Alloc, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<bool, D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_bool(BoolVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de> TrDecodable<'de> for bool {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for bool {
     type DecodeAsync<'a, D>
-        = DecodeBoolOpAsync<'de, 'a, 'a, D>
+        = DecodeBoolOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -438,7 +463,7 @@ impl<'de> TrDecodable<'de> for bool {
 
 struct CharVisitor;
 
-impl<'de> Visitor<'de> for CharVisitor {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for CharVisitor {
     type Value = char;
 
     fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -469,36 +494,45 @@ impl<'de> Visitor<'de> for CharVisitor {
         let mut chars = value.chars();
         let result = match (chars.next(), chars.next()) {
             (Some(ch), None) => Ok(ch),
-            _ => Err(<E as Error>::invalid_value(Unexpected::Str(value), &self)),
+            _ => Err(<E as Error>::invalid_value(
+                Unexpected::Str(value),
+                &super::error_::expected::<Alloc, _>(&self),
+            )),
         };
         future::ready(result)
     }
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeCharOp)]
-pub async fn decode_char_op_async_<'de, 'a, D, C>(de: D, cancel: C) -> Result<char, D::Error>
+pub async fn decode_char_op_async_<'de, 'alloc, 'a, Alloc, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<char, D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_char(CharVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de> TrDecodable<'de> for char {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for char {
     type DecodeAsync<'a, D>
-        = DecodeCharOpAsync<'de, 'a, 'a, D>
+        = DecodeCharOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -508,7 +542,7 @@ impl<'de> TrDecodable<'de> for char {
 
 struct StringVisitor;
 
-impl<'de> Visitor<'de> for StringVisitor {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for StringVisitor {
     type Value = String;
 
     fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -541,10 +575,14 @@ impl<'de> Visitor<'de> for StringVisitor {
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeStringOp)]
-pub async fn decode_string_op_async_<'de, 'a, D, C>(de: D, cancel: C) -> Result<String, D::Error>
+pub async fn decode_string_op_async_<'de, 'alloc, 'a, Alloc, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<String, D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    D: TrDecoder<'de> + 'a,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -553,19 +591,21 @@ where
         .await
 }
 
-impl<'de> TrDecodable<'de> for String {
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for String {
     type DecodeAsync<'a, D>
-        = DecodeStringOpAsync<'de, 'a, 'a, D>
+        = DecodeStringOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -575,9 +615,10 @@ impl<'de> TrDecodable<'de> for String {
 
 struct OptionVisitor<T>(PhantomData<T>);
 
-impl<'de, T> Visitor<'de> for OptionVisitor<T>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T> Visitor<'de, 'alloc, Alloc>
+    for OptionVisitor<T>
 where
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
 {
     type Value = Option<T>;
 
@@ -600,24 +641,26 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, D::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de> + 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
     {
-        DecodeSomeOpAsync::<'de, 'a, 'a, T, D>::new(de)
+        DecodeSomeOpAsync::<'de, 'alloc, 'a, 'a, Alloc, T, D>::new(de)
     }
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeSomeOp)]
-pub async fn decode_some_op_async_<'de, 'a, T, D, C>(
+pub async fn decode_some_op_async_<'de, 'alloc, 'a, Alloc, T, D, C>(
     de: D,
     cancel: C,
 ) -> Result<Option<T>, D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    D: TrDecoder<'de> + 'a,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -626,14 +669,15 @@ where
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeOptionOp)]
-pub async fn decode_option_op_async_<'de, 'a, T, D, C>(
+pub async fn decode_option_op_async_<'de, 'alloc, 'a, Alloc, T, D, C>(
     de: D,
     cancel: C,
 ) -> Result<Option<T>, D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    D: TrDecoder<'de> + 'a,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -642,22 +686,24 @@ where
         .await
 }
 
-impl<'de, T> TrDecodable<'de> for Option<T>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T> TrDecodable<'de, 'alloc, Alloc> for Option<T>
 where
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
 {
     type DecodeAsync<'a, D>
-        = DecodeOptionOpAsync<'de, 'a, 'a, T, D>
+        = DecodeOptionOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -665,35 +711,40 @@ where
     }
 }
 
-impl<'de, T, A> TrDecodable<'de> for Vec<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for Vec<T, CA>
 where
-    T: TrDecodable<'de> + 'de,
-    A: Allocator + Default,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, Vec<T, A>>>
+        = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, Vec<T, CA>>>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
-        de.decode_seq(SeqCollectVisitor::<T, Self>::new_())
+        let alloc = CA::alloc_from(de.allocator());
+        de.decode_seq(SeqCollectVisitor::<T, Self>::new_(alloc))
     }
 }
 
 struct ArrayVisitor<T, const N: usize>(PhantomData<T>);
 
-impl<'de, T, const N: usize> Visitor<'de> for ArrayVisitor<T, N>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, const N: usize> Visitor<'de, 'alloc, Alloc>
+    for ArrayVisitor<T, N>
 where
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
 {
     type Value = [T; N];
 
@@ -707,24 +758,26 @@ where
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         'de: 'a,
+        'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de> + 'a,
+        A: SeqAccess<'de, 'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        DecodeArraySeqOpAsync::<'de, 'a, 'a, T, A, N>::new(seq)
+        DecodeArraySeqOpAsync::<'de, 'alloc, 'a, 'a, Alloc, T, A, N>::new(seq)
     }
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeArraySeqOp)]
-pub async fn decode_array_seq_async_<'de, 'a, T, A, const N: usize, C>(
+pub async fn decode_array_seq_async_<'de, 'alloc, 'a, Alloc, T, A, const N: usize, C>(
     mut seq: A,
     cancel: C,
 ) -> Result<[T; N], A::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    A: SeqAccess<'de> + 'a,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    A: SeqAccess<'de, 'alloc, Alloc> + 'a,
     A::Error: 'a,
     C: TrCancellationToken,
 {
@@ -742,14 +795,15 @@ where
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeArrayOp)]
-pub async fn decode_array_op_async_<'de, 'a, T, const N: usize, D, C>(
+pub async fn decode_array_op_async_<'de, 'alloc, 'a, Alloc, T, const N: usize, D, C>(
     de: D,
     cancel: C,
 ) -> Result<[T; N], D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    D: TrDecoder<'de> + 'a,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -758,22 +812,25 @@ where
         .await
 }
 
-impl<'de, T, const N: usize> TrDecodable<'de> for [T; N]
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, const N: usize>
+    TrDecodable<'de, 'alloc, Alloc> for [T; N]
 where
-    T: TrDecodable<'de> + 'de,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
 {
     type DecodeAsync<'a, D>
-        = DecodeArrayOpAsync<'de, 'a, 'a, T, D, N>
+        = DecodeArrayOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, D, N>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -782,39 +839,44 @@ where
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeBoxOp)]
-pub async fn decode_box_op_async_<'de, 'a, T, A, D, C>(
+pub async fn decode_box_op_async_<'de, 'alloc, 'a, Alloc, T, CA, D, C>(
     de: D,
     cancel: C,
-) -> Result<Box<T, A>, D::Error>
+) -> Result<Box<T, CA>, D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    A: Allocator + Default + 'a,
-    D: TrDecoder<'de> + 'a,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'a,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
+    let alloc = CA::alloc_from(de.allocator());
     let value = T::decode_async(de).may_cancel_with(cancel).await?;
-    Ok(Box::new_in(value, A::default()))
+    Ok(Box::new_in(value, alloc))
 }
 
-impl<'de, T, A> TrDecodable<'de> for Box<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for Box<T, CA>
 where
-    T: TrDecodable<'de> + 'de,
-    A: Allocator + Default,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeBoxOpAsync<'de, 'a, 'a, T, A, D>
+        = DecodeBoxOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, CA, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -824,40 +886,45 @@ where
 
 #[cfg(target_has_atomic = "ptr")]
 #[gen_mcf2::gen_may_cancel_future(DecodeArcOp)]
-pub async fn decode_arc_op_async_<'de, 'a, T, A, D, C>(
+pub async fn decode_arc_op_async_<'de, 'alloc, 'a, Alloc, T, CA, D, C>(
     de: D,
     cancel: C,
-) -> Result<Arc<T, A>, D::Error>
+) -> Result<Arc<T, CA>, D::Error>
 where
+    Alloc: TrArena<'alloc> + 'alloc,
     'de: 'a,
-    T: TrDecodable<'de> + 'de,
-    A: Allocator + Default + 'a,
-    D: TrDecoder<'de> + 'a,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'a,
+    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
+    let alloc = CA::alloc_from(de.allocator());
     let value = T::decode_async(de).may_cancel_with(cancel).await?;
-    Ok(Arc::new_in(value, A::default()))
+    Ok(Arc::new_in(value, alloc))
 }
 
 #[cfg(target_has_atomic = "ptr")]
-impl<'de, T, A> TrDecodable<'de> for Arc<T, A>
+impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
+    for Arc<T, CA>
 where
-    T: TrDecodable<'de> + 'de,
-    A: Allocator + Default,
+    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeArcOpAsync<'de, 'a, 'a, T, A, D>
+        = DecodeArcOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, CA, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
         'de: 'a,
-        D: TrDecoder<'de> + 'a,
+        'alloc: 'a,
+        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
