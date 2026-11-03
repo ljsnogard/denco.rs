@@ -160,11 +160,11 @@ where
 }
 
 /// 用 denco 从字节解码一个值。
-fn decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
+fn decode_<'alloc, T>(bytes: &[u8]) -> T
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
 {
-    let mut input: &'de [u8] = bytes;
+    let mut input: &[u8] = bytes;
     block_on_(async {
         T::decode_async(MpDecoder::new(&mut input))
             .may_cancel_with(NonCancellableToken::new())

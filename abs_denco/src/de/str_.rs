@@ -123,15 +123,14 @@ where
 
 /// 把字符串读进 arena 的解码 helper。
 #[gen_mcf2::gen_may_cancel_future(DecodeArenaStrOp, pub, new(pub))]
-async fn decode_arena_str_async_<'de, 'alloc, 'a, Alloc, D, C>(
+async fn decode_arena_str_async_<'alloc, 'a, Alloc, D, C>(
     de: D,
     cancel: C,
 ) -> Result<&'alloc str, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
     Alloc: TrArenaBytes<'alloc> + 'alloc,
-    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+    D: TrDecoder<'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -140,24 +139,22 @@ where
         .await
 }
 
-impl<'de, 'alloc, Alloc> TrDecodable<'de, 'alloc, Alloc> for &'alloc str
+impl<'alloc, Alloc> TrDecodable<'alloc, Alloc> for &'alloc str
 where
     Alloc: TrArenaBytes<'alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeArenaStrOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
+        = DecodeArenaStrOpAsync<'alloc, 'a, 'a, Alloc, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

@@ -6,24 +6,24 @@ use super::{Error, NoArena, TrArena, TrDecoder};
 
 /// 可以从任意数据格式反序列化的数据结构。
 ///
-/// 生命周期 `'de` 表示反序列化结果可能借用输入数据的寿命；`'alloc` 表示
-/// 结果可以借用 decoder 所携带 arena 的寿命；`Alloc` 是该 arena 的类型。
-/// `decode_async` 返回 GAT 关联类型 [`TrDecodable::DecodeAsync`]，它实现
+/// `'alloc` 是结果可以借用的 decoder arena 的寿命，`Alloc` 是该 arena 的类型。
+/// 解码方向**没有**「借用输入数据」的生命周期参数：输入借用入口已被移除，
+/// 结果要么完全不借用（owned 值 / `Global` allocator），要么借用调用者提供的
+/// arena。`decode_async` 返回 GAT 关联类型 [`TrDecodable::DecodeAsync`]，它实现
 /// [`TrMayCancel`]；取消生命周期 `'a` 由调用者根据反序列化器和令牌的寿命选择。
 ///
 /// # Errors
 ///
 /// 当输入与 `Self` 不兼容、数据格式报错或实现者响应取消信号时返回
 /// `D::Error`。
-pub trait TrDecodable<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
+pub trait TrDecodable<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 反序列化本值时产生的可取消 future。
     ///
     /// 具体类型由实现者决定；实现者可以在该关联类型上附加 `Send` 等约束。
     type DecodeAsync<'a, D>: TrMayCancel<'a, MayCancelOutput = Result<Self, D::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
@@ -34,21 +34,55 @@ pub trait TrDecodable<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 }
 
-/// 可以从任意数据格式反序列化、且不借用输入数据的数据结构。
+/// 可以在任意 arena 寿命下用 [`NoArena`] 反序列化、且不借用 arena 的数据结构。
 ///
-/// 这是 `for<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena>` 的简写：
-/// 值版实现对所有 allocator 都一样，用 [`NoArena`] 作为不涉及 arena 的
-/// 规范形态即可判定「owned」。
-pub trait TrDecodableOwned: for<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> {}
+/// 定义是 `for<'alloc> TrDecodable<'alloc, NoArena>`。解码方向不再有输入借用
+/// 生命周期之后，这个约束表达的是「与 arena 无关的 owned 结果」：
+///
+/// - `String`、`Vec<T>`、`Cow<'a, str>`、`BumpString<Global>` 等满足——
+///   它们的 impl 对所有 `'alloc` 都成立；
+/// - `&'alloc str` / `&'alloc [u8]` **不**满足：它们需要 `TrArenaBytes`，
+///   而 `NoArena` 不实现；
+/// - [`BumpBox<'alloc, T>`](https://docs.rs/denco_bumpalo) 不满足：`Self`
+///   本身携带 `'alloc`；
+/// - derive 生成的 `Foo<'x>` **通常也不满足**：宏把用户生命周期绑定到
+///   `'alloc`，`Foo<'x>` 只实现 `TrDecodable<'x, ...>`，不是对所有 `'alloc`。
+///
+/// 因此它不能当作「所有 owned 类型」的统称，而是「与 arena 解耦」的精确约束。
+///
+/// # Examples
+///
+/// ```
+/// use std::borrow::Cow;
+///
+/// use abs_denco::de::TrDecodableOwned;
+///
+/// fn assert_owned<T: TrDecodableOwned>() {}
+///
+/// assert_owned::<String>();
+/// assert_owned::<Vec<u32>>();
+/// assert_owned::<Cow<'static, str>>();
+/// ```
+///
+/// `&'alloc str` 与 derive 生成的 `Foo<'x>` 不满足该约束；例如下面的代码
+/// 无法编译：
+///
+/// ```compile_fail
+/// use abs_denco::de::TrDecodableOwned;
+///
+/// fn assert_owned<T: TrDecodableOwned>() {}
+///
+/// assert_owned::<&'static str>();
+/// ```
+pub trait TrDecodableOwned: for<'alloc> TrDecodable<'alloc, NoArena> {}
 
-impl<T> TrDecodableOwned for T where T: for<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> {}
+impl<T> TrDecodableOwned for T where T: for<'alloc> TrDecodable<'alloc, NoArena> {}
 
 /// 把「如何构造值」与「反序列化器」解耦的 seed。
 ///
@@ -58,16 +92,15 @@ impl<T> TrDecodableOwned for T where T: for<'de, 'alloc> TrDecodable<'de, 'alloc
 /// # Errors
 ///
 /// 与 [`TrDecodable`] 相同，由具体的反序列化器和 seed 决定。
-pub trait TrDecodableSeed<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
+pub trait TrDecodableSeed<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// seed 最终产生的值。
     type Value;
 
     /// 反序列化本 seed 时产生的可取消 future。
     type DecodeAsync<'a, D>: TrMayCancel<'a, MayCancelOutput = Result<Self::Value, D::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
         Self::Value: 'a;
@@ -79,36 +112,33 @@ pub trait TrDecodableSeed<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_async<'a, D>(self, deserializer: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
         Self::Value: 'a;
 }
 
-impl<'de, 'alloc, Alloc, T> TrDecodableSeed<'de, 'alloc, Alloc> for core::marker::PhantomData<T>
+impl<'alloc, Alloc, T> TrDecodableSeed<'alloc, Alloc> for core::marker::PhantomData<T>
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    T: TrDecodable<'de, 'alloc, Alloc>,
+    T: TrDecodable<'alloc, Alloc>,
 {
     type Value = T;
 
     type DecodeAsync<'a, D>
-        = <T as TrDecodable<'de, 'alloc, Alloc>>::DecodeAsync<'a, D>
+        = <T as TrDecodable<'alloc, Alloc>>::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
         Self::Value: 'a;
 
     fn decode_async<'a, D>(self, deserializer: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
         Self::Value: 'a,
@@ -127,16 +157,15 @@ where
 /// 值版 `T` 可以是任意 `TrDecodable` 实现（包括 derive 生成的、对 allocator
 /// 泛化的实现），所以引用版仍然是值版的薄包装，不需要改 `decode_*` 读取逻辑。
 #[gen_mcf2::gen_may_cancel_future(DecodeArenaRefOp, pub, new(pub))]
-async fn decode_arena_ref_async_<'de, 'alloc, 'a, Alloc, T, D, C>(
+async fn decode_arena_ref_async_<'alloc, 'a, Alloc, T, D, C>(
     de: D,
     cancel: C,
 ) -> Result<&'alloc mut T, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
     Alloc: TrArena<'alloc, Ref<T> = &'alloc mut T> + 'alloc,
-    T: TrDecodable<'de, 'alloc, Alloc> + 'alloc,
-    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+    T: TrDecodable<'alloc, Alloc> + 'alloc,
+    D: TrDecoder<'alloc, Alloc> + 'a,
     D::Error: Error + 'a,
     C: TrCancellationToken,
 {
@@ -151,25 +180,23 @@ where
         .map_err(<D::Error as Error>::custom)
 }
 
-impl<'de, 'alloc, Alloc, T> TrDecodable<'de, 'alloc, Alloc> for &'alloc mut T
+impl<'alloc, Alloc, T> TrDecodable<'alloc, Alloc> for &'alloc mut T
 where
     Alloc: TrArena<'alloc, Ref<T> = &'alloc mut T> + 'alloc,
-    T: TrDecodable<'de, 'alloc, Alloc> + 'alloc,
+    T: TrDecodable<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeArenaRefOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, D>
+        = DecodeArenaRefOpAsync<'alloc, 'a, 'a, Alloc, T, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

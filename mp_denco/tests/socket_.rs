@@ -53,9 +53,9 @@ where
 /// 从适配器解码一个 owned 值。
 ///
 /// Decode one owned value from the adapter.
-async fn decode_from_<'de, 'alloc, T, R>(reader: &mut R) -> Result<T, MpError>
+async fn decode_from_<'alloc, T, R>(reader: &mut R) -> Result<T, MpError>
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
     R: TrBuffRead<u8>,
 {
     T::decode_async(MpDecoder::new(reader))
@@ -66,12 +66,9 @@ where
 /// 从适配器解码一个 owned 值，并允许外部取消。
 ///
 /// Decode one owned value from the adapter with an external cancellation token.
-async fn decode_from_cancellable_<'de, 'alloc, T, R, C>(
-    reader: &mut R,
-    cancel: C,
-) -> Result<T, MpError>
+async fn decode_from_cancellable_<'alloc, T, R, C>(reader: &mut R, cancel: C) -> Result<T, MpError>
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
     R: TrBuffRead<u8>,
     C: TrCancellationToken,
 {

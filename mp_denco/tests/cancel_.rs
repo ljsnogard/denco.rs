@@ -63,7 +63,7 @@ struct SlowDecoder;
 /// `SlowValue` 的访问者；慢速反序列化器不会真正调用它的 visit 方法。
 struct SlowVisitor;
 
-impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for SlowVisitor {
+impl<'alloc> Visitor<'alloc, NoArena> for SlowVisitor {
     type Value = SlowValue;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -72,14 +72,13 @@ impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for SlowVisitor {
 }
 
 #[gen_may_cancel_future(DecodeAnySlowOp)]
-async fn decode_any_slow_async<'de, 'alloc, 'a, V, C>(
+async fn decode_any_slow_async<'alloc, 'a, V, C>(
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, TestError>
 where
-    'de: 'a,
     'alloc: 'a,
-    V: Visitor<'de, 'alloc, NoArena> + 'a,
+    V: Visitor<'alloc, NoArena> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -88,7 +87,7 @@ where
     Err(TestError)
 }
 
-impl<'de, 'alloc> TrDecoder<'de, 'alloc, NoArena> for SlowDecoder {
+impl<'alloc> TrDecoder<'alloc, NoArena> for SlowDecoder {
     type Error = TestError;
 
     fn allocator(&self) -> &'alloc NoArena {
@@ -96,20 +95,18 @@ impl<'de, 'alloc> TrDecoder<'de, 'alloc, NoArena> for SlowDecoder {
     }
 
     type DecodeAnyAsync<'a, V>
-        = DecodeAnySlowOpAsync<'de, 'alloc, 'a, 'a, V>
+        = DecodeAnySlowOpAsync<'alloc, 'a, 'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, NoArena> + 'a,
+        V: Visitor<'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
 
     fn decode_any<'a, V>(self, visitor: V) -> Self::DecodeAnyAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, NoArena> + 'a,
+        V: Visitor<'alloc, NoArena> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -153,35 +150,29 @@ impl<'de, 'alloc> TrDecoder<'de, 'alloc, NoArena> for SlowDecoder {
 }
 
 #[gen_may_cancel_future(DecodeSlowValueOp)]
-async fn decode_slow_value_async<'de, 'alloc, 'a, D, C>(
-    de: D,
-    cancel: C,
-) -> Result<SlowValue, D::Error>
+async fn decode_slow_value_async<'alloc, 'a, D, C>(de: D, cancel: C) -> Result<SlowValue, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
-    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+    D: TrDecoder<'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_u64(SlowVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for SlowValue {
+impl<'alloc> TrDecodable<'alloc, NoArena> for SlowValue {
     type DecodeAsync<'a, D>
-        = DecodeSlowValueOpAsync<'de, 'alloc, 'a, 'a, D>
+        = DecodeSlowValueOpAsync<'alloc, 'a, 'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

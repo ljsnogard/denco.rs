@@ -74,11 +74,11 @@ where
 }
 
 /// 用 `mp_denco` 解码一个值。
-fn mp_decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
+fn mp_decode_<'alloc, T>(bytes: &[u8]) -> T
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
 {
-    let mut input: &'de [u8] = bytes;
+    let mut input: &[u8] = bytes;
     block_on_(async { T::decode_async(MpDecoder::new(&mut input)).await })
         .expect("mp_denco 解码应当成功")
 }

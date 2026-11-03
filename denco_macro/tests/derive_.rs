@@ -74,11 +74,11 @@ where
     storage
 }
 
-fn decode_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
+fn decode_<'alloc, T>(bytes: &[u8]) -> T
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
 {
-    let mut input: &'de [u8] = bytes;
+    let mut input: &[u8] = bytes;
     block_on_(async {
         T::decode_async(MpDecoder::new(&mut input))
             .may_cancel_with(NonCancellableToken::new())
@@ -115,7 +115,7 @@ impl TrEncodable for U64Val {
 
 struct U64ValVisitor;
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for U64ValVisitor {
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for U64ValVisitor {
     type Value = U64Val;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -136,38 +136,35 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
 }
 
 #[gen_may_cancel_future(DecodeU64ValOp)]
-pub async fn decode_u64_val_async<'de, 'alloc, 'a, Alloc, D, C>(
+pub async fn decode_u64_val_async<'alloc, 'a, Alloc, D, C>(
     de: D,
     cancel: C,
 ) -> Result<U64Val, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
     Alloc: TrArena<'alloc> + 'alloc,
-    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+    D: TrDecoder<'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: abs_cancel::TrCancellationToken,
 {
     de.decode_u64(U64ValVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for U64Val {
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'alloc, Alloc> for U64Val {
     type DecodeAsync<'a, D>
-        = DecodeU64ValOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
+        = DecodeU64ValOpAsync<'alloc, 'a, 'a, Alloc, D>
     where
-        'de: 'a,
         'alloc: 'a,
         Alloc: TrArena<'alloc> + 'alloc,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
         Alloc: TrArena<'alloc> + 'alloc,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -201,7 +198,7 @@ impl TrEncodable for StrVal {
 
 struct StrValVisitor;
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for StrValVisitor {
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for StrValVisitor {
     type Value = StrVal;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -222,15 +219,14 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
 }
 
 #[gen_may_cancel_future(DecodeStrValOp)]
-pub async fn decode_str_val_async<'de, 'alloc, 'a, Alloc, D, C>(
+pub async fn decode_str_val_async<'alloc, 'a, Alloc, D, C>(
     de: D,
     cancel: C,
 ) -> Result<StrVal, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
     Alloc: TrArena<'alloc> + 'alloc,
-    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+    D: TrDecoder<'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: abs_cancel::TrCancellationToken,
 {
@@ -239,23 +235,21 @@ where
         .await
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for StrVal {
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'alloc, Alloc> for StrVal {
     type DecodeAsync<'a, D>
-        = DecodeStrValOpAsync<'de, 'alloc, 'a, 'a, Alloc, D>
+        = DecodeStrValOpAsync<'alloc, 'a, 'a, Alloc, D>
     where
-        'de: 'a,
         'alloc: 'a,
         Alloc: TrArena<'alloc> + 'alloc,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
         Alloc: TrArena<'alloc> + 'alloc,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -303,10 +297,9 @@ where
 
 struct HandKeyVisitor<S>(PhantomData<S>);
 
-impl<'de, 'alloc, S, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
-    for HandKeyVisitor<S>
+impl<'alloc, S, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for HandKeyVisitor<S>
 where
-    S: Borrow<str> + From<String> + 'de,
+    S: Borrow<str> + From<String> + 'alloc,
 {
     type Value = HandKey<S>;
 
@@ -328,16 +321,15 @@ where
 }
 
 #[gen_may_cancel_future(DecodeHandKeyOp)]
-async fn decode_hand_key_async<'de, 'alloc, 'a, Alloc, S, D, C>(
+async fn decode_hand_key_async<'alloc, 'a, Alloc, S, D, C>(
     de: D,
     cancel: C,
 ) -> Result<HandKey<S>, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
-    S: Borrow<str> + From<String> + 'de + 'a,
+    S: Borrow<str> + From<String> + 'alloc + 'a,
     Alloc: TrArena<'alloc> + 'alloc,
-    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+    D: TrDecoder<'alloc, Alloc> + 'a,
     D::Error: 'a,
     C: abs_cancel::TrCancellationToken,
 {
@@ -346,26 +338,24 @@ where
         .await
 }
 
-impl<'de, 'alloc, S, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for HandKey<S>
+impl<'alloc, S, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'alloc, Alloc> for HandKey<S>
 where
-    S: Borrow<str> + From<String> + 'de,
+    S: Borrow<str> + From<String> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeHandKeyOpAsync<'de, 'alloc, 'a, 'a, Alloc, S, D>
+        = DecodeHandKeyOpAsync<'alloc, 'a, 'a, Alloc, S, D>
     where
-        'de: 'a,
         'alloc: 'a,
         Alloc: TrArena<'alloc> + 'alloc,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
         Alloc: TrArena<'alloc> + 'alloc,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

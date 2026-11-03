@@ -50,28 +50,26 @@ where
     }
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, TyHasher, CA>
-    TrDecodable<'de, 'alloc, Alloc> for HashMap<K, V, TyHasher, CA>
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, TyHasher, CA> TrDecodable<'alloc, Alloc>
+    for HashMap<K, V, TyHasher, CA>
 where
-    K: TrDecodable<'de, 'alloc, Alloc> + 'de + Eq + Hash,
-    V: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    K: TrDecodable<'alloc, Alloc> + 'alloc + Eq + Hash,
+    V: TrDecodable<'alloc, Alloc> + 'alloc,
     TyHasher: BuildHasher + Default,
     CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
         = D::DecodeMapAsync<'a, MapCollectVisitor<K, V, HashMap<K, V, TyHasher, CA>>>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -80,27 +78,25 @@ where
     }
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, TyHasher, CA> TrDecodable<'de, 'alloc, Alloc>
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc, T, TyHasher, CA> TrDecodable<'alloc, Alloc>
     for HashSet<T, TyHasher, CA>
 where
-    T: TrDecodable<'de, 'alloc, Alloc> + 'de + Eq + Hash,
+    T: TrDecodable<'alloc, Alloc> + 'alloc + Eq + Hash,
     TyHasher: BuildHasher + Default,
     CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
         = D::DecodeSeqAsync<'a, SeqCollectVisitor<T, HashSet<T, TyHasher, CA>>>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

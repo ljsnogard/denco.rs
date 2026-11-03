@@ -37,14 +37,14 @@ macro_rules! ignored_value {
 }
 
 #[gen_may_cancel_future(VisitIgnoredSeq)]
-async fn visit_ignored_seq_async<'de, 'alloc, 'a, Alloc, A, C>(
+async fn visit_ignored_seq_async<'alloc, 'a, Alloc, A, C>(
     mut seq: A,
     cancel: C,
 ) -> Result<IgnoredAny, A::Error>
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    'de: 'a,
-    A: SeqAccess<'de, 'alloc, Alloc> + 'a,
+    'alloc: 'a,
+    A: SeqAccess<'alloc, Alloc> + 'a,
     A::Error: 'a,
     C: TrCancellationToken,
 {
@@ -58,14 +58,14 @@ where
 }
 
 #[gen_may_cancel_future(VisitIgnoredMap)]
-async fn visit_ignored_map_async<'de, 'alloc, 'a, Alloc, A, C>(
+async fn visit_ignored_map_async<'alloc, 'a, Alloc, A, C>(
     mut map: A,
     cancel: C,
 ) -> Result<IgnoredAny, A::Error>
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    'de: 'a,
-    A: MapAccess<'de, 'alloc, Alloc> + 'a,
+    'alloc: 'a,
+    A: MapAccess<'alloc, Alloc> + 'a,
     A::Error: 'a,
     C: TrCancellationToken,
 {
@@ -79,14 +79,14 @@ where
 }
 
 #[gen_may_cancel_future(VisitIgnoredEnum)]
-async fn visit_ignored_enum_async<'de, 'alloc, 'a, Alloc, A, C>(
+async fn visit_ignored_enum_async<'alloc, 'a, Alloc, A, C>(
     data: A,
     cancel: C,
 ) -> Result<IgnoredAny, A::Error>
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    'de: 'a,
-    A: EnumAccess<'de, 'alloc, Alloc> + 'a,
+    'alloc: 'a,
+    A: EnumAccess<'alloc, Alloc> + 'a,
     A::Error: 'a,
     C: TrCancellationToken,
 {
@@ -100,7 +100,7 @@ where
         .await
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> for IgnoredAny {
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for IgnoredAny {
     type Value = IgnoredAny;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -139,11 +139,10 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
         deserializer: D,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, D::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
     {
         IgnoredAny::decode_async(deserializer)
@@ -154,11 +153,10 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
         deserializer: D,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, D::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
     {
         IgnoredAny::decode_async(deserializer)
@@ -169,14 +167,13 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
         seq: A,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de, 'alloc, Alloc> + 'a,
+        A: SeqAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        VisitIgnoredSeqAsync::<'de, 'alloc, 'a, 'a, Alloc, A>::new(seq)
+        VisitIgnoredSeqAsync::<'alloc, 'a, 'a, Alloc, A>::new(seq)
     }
 
     fn visit_map<'a, A>(
@@ -184,14 +181,13 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
         map: A,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: MapAccess<'de, 'alloc, Alloc> + 'a,
+        A: MapAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        VisitIgnoredMapAsync::<'de, 'alloc, 'a, 'a, Alloc, A>::new(map)
+        VisitIgnoredMapAsync::<'alloc, 'a, 'a, Alloc, A>::new(map)
     }
 
     fn visit_enum<'a, A>(
@@ -199,32 +195,29 @@ impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc> f
         data: A,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: EnumAccess<'de, 'alloc, Alloc> + 'a,
+        A: EnumAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        VisitIgnoredEnumAsync::<'de, 'alloc, 'a, 'a, Alloc, A>::new(data)
+        VisitIgnoredEnumAsync::<'alloc, 'a, 'a, Alloc, A>::new(data)
     }
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'de, 'alloc, Alloc> for IgnoredAny {
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'alloc, Alloc> for IgnoredAny {
     type DecodeAsync<'a, D>
         = BoxedMayCancel<'a, Result<IgnoredAny, D::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(deserializer: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

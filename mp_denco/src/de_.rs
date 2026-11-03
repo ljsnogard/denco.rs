@@ -329,7 +329,7 @@ where
 /// 读取字符串负载并驱动 visitor。
 ///
 /// 短值读入栈数组，长值边读边构造结果 `String`，不预拷整个 buff。
-async fn visit_str_async_<'alloc, 'de, A, R, V, C>(
+async fn visit_str_async_<'alloc, A, R, V, C>(
     reader: &mut R,
     len: usize,
     visitor: V,
@@ -338,7 +338,7 @@ async fn visit_str_async_<'alloc, 'de, A, R, V, C>(
 where
     A: TrArena<'alloc> + 'alloc,
     R: TrBuffRead<u8>,
-    V: Visitor<'de, 'alloc, A>,
+    V: Visitor<'alloc, A>,
     C: TrCancellationToken,
 {
     if cancel.is_cancelled() {
@@ -369,7 +369,7 @@ where
 }
 
 /// 读取二进制负载并驱动 visitor。
-async fn visit_bytes_async_<'alloc, 'de, A, R, V, C>(
+async fn visit_bytes_async_<'alloc, A, R, V, C>(
     reader: &mut R,
     len: usize,
     visitor: V,
@@ -378,7 +378,7 @@ async fn visit_bytes_async_<'alloc, 'de, A, R, V, C>(
 where
     A: TrArena<'alloc> + 'alloc,
     R: TrBuffRead<u8>,
-    V: Visitor<'de, 'alloc, A>,
+    V: Visitor<'alloc, A>,
     C: TrCancellationToken,
 {
     if cancel.is_cancelled() {
@@ -449,16 +449,15 @@ where
 }
 
 #[gen_may_cancel_future(DecodeNameOp)]
-async fn decode_name_async_<'alloc, 'de, 'a, A, V, C>(
+async fn decode_name_async_<'alloc, 'a, A, V, C>(
     name: NameRef,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -482,7 +481,7 @@ struct MpNameDecoder<'alloc, A: TrArena<'alloc> + 'alloc> {
     arena_: &'alloc A,
 }
 
-impl<'de, 'alloc, A> TrDecoder<'de, 'alloc, A> for MpNameDecoder<'alloc, A>
+impl<'alloc, A> TrDecoder<'alloc, A> for MpNameDecoder<'alloc, A>
 where
     A: TrArena<'alloc> + 'alloc,
 {
@@ -493,25 +492,23 @@ where
     }
 
     type DecodeAnyAsync<'a, V>
-        = DecodeNameOpAsync<'alloc, 'de, 'a, 'a, A, V>
+        = DecodeNameOpAsync<'alloc, 'a, 'a, A, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
 
     fn decode_any<'a, V>(self, visitor: V) -> Self::DecodeAnyAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNameOpAsync::<'alloc, 'de, 'a, 'a, A, V>::new(self.name_, visitor)
+        DecodeNameOpAsync::<'alloc, 'a, 'a, A, V>::new(self.name_, visitor)
     }
 
     forward_to_decode_any! {
@@ -550,18 +547,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeElementOp, pub)]
-async fn decode_element_async_<'alloc, 'r, 'de, 'a, A, R, T, C>(
+async fn decode_element_async_<'alloc, 'r, 'a, A, R, T, C>(
     de: Option<MpDecoder<'r, 'alloc, R, A>>,
     seed: T,
     cancel: C,
 ) -> Result<Option<T::Value>, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    T: TrDecodableSeed<'de, 'alloc, A> + 'a,
+    T: TrDecodableSeed<'alloc, A> + 'a,
     T::Value: 'a,
     C: TrCancellationToken,
 {
@@ -573,7 +569,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeKeyOp, pub)]
-async fn decode_key_async_<'alloc, 'r, 'de, 'a, A, R, K, C>(
+async fn decode_key_async_<'alloc, 'r, 'a, A, R, K, C>(
     de: Option<MpDecoder<'r, 'alloc, R, A>>,
     seed: K,
     err: Option<MpError>,
@@ -581,11 +577,10 @@ async fn decode_key_async_<'alloc, 'r, 'de, 'a, A, R, K, C>(
 ) -> Result<Option<K::Value>, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    K: TrDecodableSeed<'de, 'alloc, A> + 'a,
+    K: TrDecodableSeed<'alloc, A> + 'a,
     K::Value: 'a,
     C: TrCancellationToken,
 {
@@ -600,7 +595,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeMapValueOp, pub)]
-async fn decode_map_value_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_map_value_async_<'alloc, 'r, 'a, A, R, V, C>(
     de: Option<MpDecoder<'r, 'alloc, R, A>>,
     seed: V,
     err: Option<MpError>,
@@ -608,11 +603,10 @@ async fn decode_map_value_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: TrDecodableSeed<'de, 'alloc, A> + 'a,
+    V: TrDecodableSeed<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -626,13 +620,12 @@ where
 }
 
 #[gen_may_cancel_future(UnitVariantOp, pub)]
-async fn unit_variant_async_<'r, 'de, 'a, 'alloc, A, R, C>(
+async fn unit_variant_async_<'r, 'a, 'alloc, A, R, C>(
     de: Option<MpDecoder<'r, 'alloc, R, A>>,
     cancel: C,
 ) -> Result<(), MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
@@ -650,18 +643,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeVariantValueOp, pub)]
-async fn decode_variant_value_async_<'alloc, 'r, 'de, 'a, A, R, T, C>(
+async fn decode_variant_value_async_<'alloc, 'r, 'a, A, R, T, C>(
     de: Option<MpDecoder<'r, 'alloc, R, A>>,
     seed: T,
     cancel: C,
 ) -> Result<T::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    T: TrDecodableSeed<'de, 'alloc, A> + 'a,
+    T: TrDecodableSeed<'alloc, A> + 'a,
     T::Value: 'a,
     C: TrCancellationToken,
 {
@@ -672,7 +664,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeVariantTupleOp, pub)]
-async fn decode_variant_tuple_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_variant_tuple_async_<'alloc, 'r, 'a, A, R, V, C>(
     de: Option<MpDecoder<'r, 'alloc, R, A>>,
     len: usize,
     visitor: V,
@@ -680,11 +672,10 @@ async fn decode_variant_tuple_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -695,7 +686,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeVariantStructOp, pub)]
-async fn decode_variant_struct_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_variant_struct_async_<'alloc, 'r, 'a, A, R, V, C>(
     de: Option<MpDecoder<'r, 'alloc, R, A>>,
     fields: &'static [&'static str],
     visitor: V,
@@ -703,11 +694,10 @@ async fn decode_variant_struct_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -720,7 +710,7 @@ where
 }
 
 #[gen_may_cancel_future(EnumVariantSeedOp)]
-async fn enum_variant_seed_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn enum_variant_seed_async_<'alloc, 'r, 'a, A, R, V, C>(
     name: NameRef,
     reader: &'r mut R,
     unit_: bool,
@@ -730,11 +720,10 @@ async fn enum_variant_seed_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
 ) -> Result<(V::Value, MpVariantAccess<'r, 'alloc, R, A>), MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: TrDecodableSeed<'de, 'alloc, A> + 'a,
+    V: TrDecodableSeed<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -762,7 +751,7 @@ struct MpSeqAccess<'r, 'alloc, R, A: TrArena<'alloc> + 'alloc> {
     arena_: &'alloc A,
 }
 
-impl<'de, 'alloc, 'r, R, A> SeqAccess<'de, 'alloc, A> for MpSeqAccess<'r, 'alloc, R, A>
+impl<'alloc, 'r, R, A> SeqAccess<'alloc, A> for MpSeqAccess<'r, 'alloc, R, A>
 where
     A: TrArena<'alloc> + 'alloc,
     R: TrBuffRead<u8> + 'r,
@@ -774,9 +763,8 @@ where
         seed: T,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<T::Value>, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        T: TrDecodableSeed<'de, 'alloc, A> + 'a,
+        T: TrDecodableSeed<'alloc, A> + 'a,
         T::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -791,7 +779,7 @@ where
                 arena_: self.arena_,
             })
         };
-        DecodeElementOpAsync::<'alloc, 'a, 'de, 'a, 'a, A, R, T>::new(de, seed)
+        DecodeElementOpAsync::<'alloc, 'a, 'a, 'a, A, R, T>::new(de, seed)
     }
 
     fn size_hint(&self) -> Option<usize> {
@@ -807,7 +795,7 @@ struct MpMapAccess<'r, 'alloc, R, A: TrArena<'alloc> + 'alloc> {
     arena_: &'alloc A,
 }
 
-impl<'de, 'alloc, 'r, R, A> MapAccess<'de, 'alloc, A> for MpMapAccess<'r, 'alloc, R, A>
+impl<'alloc, 'r, R, A> MapAccess<'alloc, A> for MpMapAccess<'r, 'alloc, R, A>
 where
     A: TrArena<'alloc> + 'alloc,
     R: TrBuffRead<u8> + 'r,
@@ -819,9 +807,8 @@ where
         seed: K,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Option<K::Value>, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        K: TrDecodableSeed<'de, 'alloc, A> + 'a,
+        K: TrDecodableSeed<'alloc, A> + 'a,
         K::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -842,7 +829,7 @@ where
                 arena_: self.arena_,
             })
         };
-        DecodeKeyOpAsync::<'alloc, 'a, 'de, 'a, 'a, A, R, K>::new(de, seed, err)
+        DecodeKeyOpAsync::<'alloc, 'a, 'a, 'a, A, R, K>::new(de, seed, err)
     }
 
     fn next_value_seed<'a, V>(
@@ -850,9 +837,8 @@ where
         seed: V,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: TrDecodableSeed<'de, 'alloc, A> + 'a,
+        V: TrDecodableSeed<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -872,7 +858,7 @@ where
                 arena_: self.arena_,
             })
         };
-        DecodeMapValueOpAsync::<'alloc, 'a, 'de, 'a, 'a, A, R, V>::new(de, seed, err)
+        DecodeMapValueOpAsync::<'alloc, 'a, 'a, 'a, A, R, V>::new(de, seed, err)
     }
 
     fn size_hint(&self) -> Option<usize> {
@@ -888,7 +874,7 @@ struct MpEnumAccess<'r, 'alloc, R, A: TrArena<'alloc> + 'alloc> {
     arena_: &'alloc A,
 }
 
-impl<'de, 'alloc, 'r, R, A> EnumAccess<'de, 'alloc, A> for MpEnumAccess<'r, 'alloc, R, A>
+impl<'alloc, 'r, R, A> EnumAccess<'alloc, A> for MpEnumAccess<'r, 'alloc, R, A>
 where
     A: TrArena<'alloc> + 'alloc,
     R: TrBuffRead<u8> + 'r,
@@ -901,15 +887,14 @@ where
         seed: V,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<(V::Value, Self::Variant), Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: TrDecodableSeed<'de, 'alloc, A> + 'a,
+        V: TrDecodableSeed<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Variant: 'a,
         Self::Error: 'a,
     {
-        EnumVariantSeedOpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(
+        EnumVariantSeedOpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(
             self.name_,
             self.reader_,
             self.unit_,
@@ -926,7 +911,7 @@ struct MpVariantAccess<'r, 'alloc, R, A: TrArena<'alloc> + 'alloc> {
     arena_: &'alloc A,
 }
 
-impl<'de, 'alloc, 'r, R, A> VariantAccess<'de, 'alloc, A> for MpVariantAccess<'r, 'alloc, R, A>
+impl<'alloc, 'r, R, A> VariantAccess<'alloc, A> for MpVariantAccess<'r, 'alloc, R, A>
 where
     A: TrArena<'alloc> + 'alloc,
     R: TrBuffRead<u8> + 'r,
@@ -935,7 +920,6 @@ where
 
     fn unit_variant<'a>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<(), Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -949,7 +933,7 @@ where
                 arena_: self.arena_,
             })
         };
-        UnitVariantOpAsync::<'a, 'de, 'a, 'alloc, 'a, A, R>::new(de)
+        UnitVariantOpAsync::<'a, 'a, 'alloc, 'a, A, R>::new(de)
     }
 
     fn newtype_variant_seed<'a, T>(
@@ -957,9 +941,8 @@ where
         seed: T,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<T::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        T: TrDecodableSeed<'de, 'alloc, A> + 'a,
+        T: TrDecodableSeed<'alloc, A> + 'a,
         T::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -973,7 +956,7 @@ where
                 arena_: self.arena_,
             })
         };
-        DecodeVariantValueOpAsync::<'alloc, 'a, 'de, 'a, 'a, A, R, T>::new(de, seed)
+        DecodeVariantValueOpAsync::<'alloc, 'a, 'a, 'a, A, R, T>::new(de, seed)
     }
 
     fn tuple_variant<'a, V>(
@@ -982,9 +965,8 @@ where
         visitor: V,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -998,7 +980,7 @@ where
                 arena_: self.arena_,
             })
         };
-        DecodeVariantTupleOpAsync::<'alloc, 'a, 'de, 'a, 'a, A, R, V>::new(de, len, visitor)
+        DecodeVariantTupleOpAsync::<'alloc, 'a, 'a, 'a, A, R, V>::new(de, len, visitor)
     }
 
     fn struct_variant<'a, V>(
@@ -1007,9 +989,8 @@ where
         visitor: V,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
@@ -1023,23 +1004,22 @@ where
                 arena_: self.arena_,
             })
         };
-        DecodeVariantStructOpAsync::<'alloc, 'a, 'de, 'a, 'a, A, R, V>::new(de, fields, visitor)
+        DecodeVariantStructOpAsync::<'alloc, 'a, 'a, 'a, A, R, V>::new(de, fields, visitor)
     }
 }
 
 #[gen_may_cancel_future(DecodeOptionOp, pub)]
-async fn decode_option_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_option_async_<'alloc, 'r, 'a, A, R, V, C>(
     mut de: MpDecoder<'r, 'alloc, R, A>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1052,18 +1032,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeUnitStructOp, pub)]
-async fn decode_unit_struct_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_unit_struct_async_<'alloc, 'r, 'a, A, R, V, C>(
     mut de: MpDecoder<'r, 'alloc, R, A>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1078,18 +1057,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeNewtypeStructOp, pub)]
-async fn decode_newtype_struct_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_newtype_struct_async_<'alloc, 'r, 'a, A, R, V, C>(
     de: MpDecoder<'r, 'alloc, R, A>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1100,18 +1078,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeI128Op, pub)]
-async fn decode_i128_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_i128_async_<'alloc, 'r, 'a, A, R, V, C>(
     mut de: MpDecoder<'r, 'alloc, R, A>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1120,18 +1097,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeU128Op, pub)]
-async fn decode_u128_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_u128_async_<'alloc, 'r, 'a, A, R, V, C>(
     mut de: MpDecoder<'r, 'alloc, R, A>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1140,7 +1116,7 @@ where
 }
 
 #[gen_may_cancel_future(DecodeEnumOp, pub)]
-async fn decode_enum_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_enum_async_<'alloc, 'r, 'a, A, R, V, C>(
     mut de: MpDecoder<'r, 'alloc, R, A>,
     _name: &'static str,
     _variants: &'static [&'static str],
@@ -1149,11 +1125,10 @@ async fn decode_enum_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1187,18 +1162,17 @@ where
 }
 
 #[gen_may_cancel_future(DecodeAnyOp, pub)]
-async fn decode_any_async_<'alloc, 'r, 'de, 'a, A, R, V, C>(
+async fn decode_any_async_<'alloc, 'r, 'a, A, R, V, C>(
     mut de: MpDecoder<'r, 'alloc, R, A>,
     visitor: V,
     cancel: C,
 ) -> Result<V::Value, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
-    V: Visitor<'de, 'alloc, A> + 'a,
+    V: Visitor<'alloc, A> + 'a,
     V::Value: 'a,
     C: TrCancellationToken,
 {
@@ -1290,13 +1264,12 @@ where
 
 /// 读取一个字符串并交给 `S` 构造；`S` 可以把内容复制进 decoder 的 arena。
 #[gen_may_cancel_future(DecodeStringAsOp, pub, new(pub))]
-async fn decode_string_as_async_<'de, 'alloc, 'r, 'a, A, R, S, C>(
+async fn decode_string_as_async_<'alloc, 'r, 'a, A, R, S, C>(
     mut de: MpDecoder<'r, 'alloc, R, A>,
     cancel: C,
 ) -> Result<S, MpError>
 where
     A: TrArena<'alloc> + 'alloc,
-    'de: 'a,
     'alloc: 'a,
     'r: 'a,
     R: TrBuffRead<u8> + 'r + 'a,
@@ -1344,7 +1317,7 @@ where
         .map_err(<MpError as Error>::custom)
 }
 
-impl<'de, 'alloc, 'r, R, A> TrDecoder<'de, 'alloc, A> for MpDecoder<'r, 'alloc, R, A>
+impl<'alloc, 'r, R, A> TrDecoder<'alloc, A> for MpDecoder<'r, 'alloc, R, A>
 where
     A: TrArena<'alloc> + 'alloc,
     R: TrBuffRead<u8> + 'r,
@@ -1356,58 +1329,53 @@ where
     }
 
     type DecodeAnyAsync<'a, V>
-        = DecodeAnyOpAsync<'alloc, 'r, 'de, 'a, 'a, A, R, V>
+        = DecodeAnyOpAsync<'alloc, 'r, 'a, 'a, A, R, V>
     where
-        'de: 'a,
         'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
 
     fn decode_any<'a, V>(self, visitor: V) -> Self::DecodeAnyAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeAnyOpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(self, visitor)
+        DecodeAnyOpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(self, visitor)
     }
 
     type DecodeOptionAsync<'a, V>
-        = DecodeOptionOpAsync<'alloc, 'r, 'de, 'a, 'a, A, R, V>
+        = DecodeOptionOpAsync<'alloc, 'r, 'a, 'a, A, R, V>
     where
-        'de: 'a,
         'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
 
     fn decode_option<'a, V>(self, visitor: V) -> Self::DecodeOptionAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeOptionOpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(self, visitor)
+        DecodeOptionOpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(self, visitor)
     }
 
     type DecodeUnitStructAsync<'a, V>
-        = DecodeUnitStructOpAsync<'alloc, 'r, 'de, 'a, 'a, A, R, V>
+        = DecodeUnitStructOpAsync<'alloc, 'r, 'a, 'a, A, R, V>
     where
-        'de: 'a,
         'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1418,23 +1386,21 @@ where
         visitor: V,
     ) -> Self::DecodeUnitStructAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeUnitStructOpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(self, visitor)
+        DecodeUnitStructOpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(self, visitor)
     }
 
     type DecodeNewtypeStructAsync<'a, V>
-        = DecodeNewtypeStructOpAsync<'alloc, 'r, 'de, 'a, 'a, A, R, V>
+        = DecodeNewtypeStructOpAsync<'alloc, 'r, 'a, 'a, A, R, V>
     where
-        'de: 'a,
         'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1445,69 +1411,63 @@ where
         visitor: V,
     ) -> Self::DecodeNewtypeStructAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeNewtypeStructOpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(self, visitor)
+        DecodeNewtypeStructOpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(self, visitor)
     }
 
     type DecodeI128Async<'a, V>
-        = DecodeI128OpAsync<'alloc, 'r, 'de, 'a, 'a, A, R, V>
+        = DecodeI128OpAsync<'alloc, 'r, 'a, 'a, A, R, V>
     where
-        'de: 'a,
         'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
 
     fn decode_i128<'a, V>(self, visitor: V) -> Self::DecodeI128Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeI128OpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(self, visitor)
+        DecodeI128OpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(self, visitor)
     }
 
     type DecodeU128Async<'a, V>
-        = DecodeU128OpAsync<'alloc, 'r, 'de, 'a, 'a, A, R, V>
+        = DecodeU128OpAsync<'alloc, 'r, 'a, 'a, A, R, V>
     where
-        'de: 'a,
         'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
 
     fn decode_u128<'a, V>(self, visitor: V) -> Self::DecodeU128Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeU128OpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(self, visitor)
+        DecodeU128OpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(self, visitor)
     }
 
     type DecodeEnumAsync<'a, V>
-        = DecodeEnumOpAsync<'alloc, 'r, 'de, 'a, 'a, A, R, V>
+        = DecodeEnumOpAsync<'alloc, 'r, 'a, 'a, A, R, V>
     where
-        'de: 'a,
         'alloc: 'a,
         'r: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -1519,14 +1479,13 @@ where
         visitor: V,
     ) -> Self::DecodeEnumAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, A> + 'a,
+        V: Visitor<'alloc, A> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeEnumOpAsync::<'alloc, 'r, 'de, 'a, 'a, A, R, V>::new(self, name, variants, visitor)
+        DecodeEnumOpAsync::<'alloc, 'r, 'a, 'a, A, R, V>::new(self, name, variants, visitor)
     }
 
     forward_to_decode_any! {
@@ -1560,12 +1519,11 @@ where
         self,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<S, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         S: TrStrFromUtf8<'alloc, A> + 'a,
         Self: 'a,
         Self::Error: 'a,
     {
-        DecodeStringAsOpAsync::<'de, 'alloc, 'r, 'a, 'a, A, R, S>::new(self)
+        DecodeStringAsOpAsync::<'alloc, 'r, 'a, 'a, A, R, S>::new(self)
     }
 }

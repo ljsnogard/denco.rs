@@ -35,10 +35,10 @@ impl<T, C: TrSeqSink<T>> SeqCollectVisitor<T, C> {
     }
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, C> Visitor<'de, 'alloc, Alloc>
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc, T, C> Visitor<'alloc, Alloc>
     for SeqCollectVisitor<T, C>
 where
-    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    T: TrDecodable<'alloc, Alloc> + 'alloc,
     C: TrSeqSink<T>,
 {
     type Value = C;
@@ -52,30 +52,29 @@ where
         seq: A,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de, 'alloc, Alloc> + 'a,
+        A: SeqAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        DecodeSeqCollectOpAsync::<'de, 'alloc, 'a, 'a, Alloc, T, C, A>::new(seq, self.alloc_)
+        DecodeSeqCollectOpAsync::<'alloc, 'a, 'a, Alloc, T, C, A>::new(seq, self.alloc_)
     }
 }
 
 #[gen_mcf2::gen_may_cancel_future(DecodeSeqCollectOp, pub)]
-async fn decode_seq_collect_async_<'de, 'alloc, 'a, Arena, T, C, A, TyTok>(
+async fn decode_seq_collect_async_<'alloc, 'a, Arena, T, C, A, TyTok>(
     mut seq: A,
     alloc: C::Alloc,
     cancel: TyTok,
 ) -> Result<C, A::Error>
 where
     Arena: TrArena<'alloc> + 'alloc,
-    'de: 'a,
-    T: TrDecodable<'de, 'alloc, Arena> + 'de,
+    'alloc: 'a,
+    T: TrDecodable<'alloc, Arena> + 'alloc,
     C: TrSeqSink<T> + 'a,
     C::Alloc: 'a,
-    A: SeqAccess<'de, 'alloc, Arena> + 'a,
+    A: SeqAccess<'alloc, Arena> + 'a,
     A::Error: 'a,
     TyTok: TrCancellationToken,
 {
@@ -112,11 +111,11 @@ impl<K, V, C: TrMapSink<K, V>> MapCollectVisitor<K, V, C> {
 }
 
 #[cfg(any(feature = "alloc-collections", feature = "std"))]
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, C> Visitor<'de, 'alloc, Alloc>
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc, K, V, C> Visitor<'alloc, Alloc>
     for MapCollectVisitor<K, V, C>
 where
-    K: TrDecodable<'de, 'alloc, Alloc> + 'de,
-    V: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    K: TrDecodable<'alloc, Alloc> + 'alloc,
+    V: TrDecodable<'alloc, Alloc> + 'alloc,
     C: TrMapSink<K, V>,
 {
     type Value = C;
@@ -130,32 +129,31 @@ where
         map: A,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         Self: 'a,
         Self::Value: 'a,
-        A: MapAccess<'de, 'alloc, Alloc> + 'a,
+        A: MapAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
-        DecodeMapCollectOpAsync::<'de, 'alloc, 'a, 'a, Alloc, K, V, C, A>::new(map, self.alloc_)
+        DecodeMapCollectOpAsync::<'alloc, 'a, 'a, Alloc, K, V, C, A>::new(map, self.alloc_)
     }
 }
 
 #[cfg(any(feature = "alloc-collections", feature = "std"))]
 #[gen_mcf2::gen_may_cancel_future(DecodeMapCollectOp, pub)]
-async fn decode_map_collect_async_<'de, 'alloc, 'a, Arena, K, V, C, A, TyTok>(
+async fn decode_map_collect_async_<'alloc, 'a, Arena, K, V, C, A, TyTok>(
     mut map: A,
     alloc: C::Alloc,
     cancel: TyTok,
 ) -> Result<C, A::Error>
 where
     Arena: TrArena<'alloc> + 'alloc,
-    'de: 'a,
-    K: TrDecodable<'de, 'alloc, Arena> + 'de,
-    V: TrDecodable<'de, 'alloc, Arena> + 'de,
+    'alloc: 'a,
+    K: TrDecodable<'alloc, Arena> + 'alloc,
+    V: TrDecodable<'alloc, Arena> + 'alloc,
     C: TrMapSink<K, V> + 'a,
     C::Alloc: 'a,
-    A: MapAccess<'de, 'alloc, Arena> + 'a,
+    A: MapAccess<'alloc, Arena> + 'a,
     A::Error: 'a,
     TyTok: TrCancellationToken,
 {

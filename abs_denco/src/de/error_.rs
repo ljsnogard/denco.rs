@@ -193,20 +193,21 @@ impl fmt::Display for Unexpected<'_> {
 /// [`Error::invalid_type`] / [`Error::invalid_value`] / [`Error::invalid_length`]
 /// 就会自动转成 `&dyn Expected`。
 ///
-/// denco 的 [`Visitor<'de, 'alloc, Alloc>`] 多了一个 `Alloc` 类型参数。同样的
-/// blanket impl 会让 `Alloc` 只出现在 where 谓词里，触发 **E0207**（类型参数
-/// 未被约束），Rust 不允许，因此不能复刻 serde 的写法。手写 visitor 需要显式
+/// denco 的 [`Visitor<'alloc, Alloc>`] 没有输入生命周期（decoder 不再借用输入，见
+/// [`crate::de::TrDecoder`] 文档），但多了 `Alloc` 类型参数。同样的 blanket impl 会让
+/// `Alloc` 只出现在 where 谓词里，触发 **E0207**（类型参数未被约束），Rust
+/// 不允许，因此不能复刻 serde 的写法。手写 visitor 需要显式
 /// 适配，提供两个入口：[`Visitor::expected`] 与自由函数 [`expected`]。
 ///
 /// 两者都返回只借用 visitor 的轻量视图，不分配内存。但 visitor 类型通常不携带
-/// `Alloc`，所以**调用点必须能确定 `'de / 'alloc / Alloc`**：
+/// `Alloc`，所以**调用点必须能确定 `'alloc / Alloc`**：
 ///
-/// - 在泛型 helper 里（`V: Visitor<'de, 'alloc, Alloc>` 就在作用域内）：
+/// - 在泛型 helper 里（`V: Visitor<'alloc, Alloc>` 就在作用域内）：
 ///   `&v.expected()` 与 `&expected(&v)` 都能自动推断；
 /// - 在 visitor impl 的 `visit_*` 方法体内：`self.expected()` 会因参数推断歧义
 ///   报 E0282；请用自由函数并显式写出 allocator 参数
 ///   `&expected::<Alloc, _>(&self)`（把 `Alloc` 换成 impl 里的参数名），
-///   或全限定 `<Self as Visitor<'de, 'alloc, Alloc>>::expected(&self)`；
+///   或全限定 `<Self as Visitor<'alloc, Alloc>>::expected(&self)`；
 /// - 描述是固定字符串时，直接 `&"a string"` 最简单（[`Expected`] 对 `&str`
 ///   有实现）。
 ///
@@ -217,8 +218,7 @@ impl fmt::Display for Unexpected<'_> {
 ///
 /// struct MyVisitor;
 ///
-/// impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
-///     for MyVisitor
+/// impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for MyVisitor
 /// {
 ///     type Value = ();
 ///
@@ -229,9 +229,9 @@ impl fmt::Display for Unexpected<'_> {
 ///
 /// fn takes(_: &dyn Expected) {}
 ///
-/// fn demo<'de, 'alloc, Alloc, V>(v: &V)
+/// fn demo<'alloc, Alloc, V>(v: &V)
 /// where
-///     V: Visitor<'de, 'alloc, Alloc>,
+///     V: Visitor<'alloc, Alloc>,
 ///     Alloc: TrArena<'alloc> + 'alloc,
 /// {
 ///     // 方法版
@@ -250,7 +250,7 @@ pub trait Expected {
 /// 这是 [`Visitor::expected`] 的自由函数版本。两者功能相同；自由函数的好处是
 /// 可以用 turbofish 显式钉住 `Alloc`：
 ///
-/// - 在泛型 helper 里（`V: Visitor<'de, 'alloc, Alloc>` 在作用域内）：
+/// - 在泛型 helper 里（`V: Visitor<'alloc, Alloc>` 在作用域内）：
 ///   `&expected(&v)` 即可；
 /// - 在 visitor impl 的 `visit_*` 方法体内（visitor 类型通常不携带 `Alloc`）：
 ///   写 `&expected::<Alloc, _>(&self)`，把 `Alloc` 换成 impl 的参数名；
@@ -266,8 +266,7 @@ pub trait Expected {
 ///
 /// struct MyVisitor;
 ///
-/// impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
-///     for MyVisitor
+/// impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for MyVisitor
 /// {
 ///     type Value = ();
 ///
@@ -278,17 +277,17 @@ pub trait Expected {
 ///
 /// fn takes(_: &dyn Expected) {}
 ///
-/// fn demo<'de, 'alloc, Alloc, V>(v: &V)
+/// fn demo<'alloc, Alloc, V>(v: &V)
 /// where
-///     V: Visitor<'de, 'alloc, Alloc>,
+///     V: Visitor<'alloc, Alloc>,
 ///     Alloc: TrArena<'alloc> + 'alloc,
 /// {
 ///     takes(&expected(v));
 /// }
 /// ```
-pub fn expected<'a, 'de, 'alloc, Alloc, V>(visitor: &'a V) -> impl Expected + 'a
+pub fn expected<'a, 'alloc, Alloc, V>(visitor: &'a V) -> impl Expected + 'a
 where
-    V: Visitor<'de, 'alloc, Alloc> + 'a,
+    V: Visitor<'alloc, Alloc> + 'a,
     Alloc: TrArena<'alloc> + 'alloc,
 {
     let format: fn(&V, &mut fmt::Formatter<'_>) -> fmt::Result = |v, f| v.expecting(f);

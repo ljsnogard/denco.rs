@@ -34,7 +34,7 @@
 //!
 //! 类型可以带生命周期参数（例如 `struct Foo<'alloc> { name: &'alloc str }`）。
 //! 解码侧把用户的全部生命周期参数**绑定到 decoder 的 arena 寿命 `'alloc`**，
-//! 生成 `impl<'de, 'alloc, ...> TrDecodable<..., __DencoAlloc> for Foo<'alloc>`；
+//! 生成 `impl<'alloc, ...> TrDecodable<'alloc, __DencoAlloc> for Foo<'alloc>`；
 //! 编码侧保留用户生命周期（`impl<'a> TrEncodable for Foo<'a>`）。
 //!
 //! 限制：
@@ -42,7 +42,7 @@
 //! - 多个生命周期参数都会绑定到同一个 `'alloc`；
 //! - 含生命周期的递归类型（如 `Node<'alloc> { next: Option<Box<Node<'alloc>>> }`）
 //!   可能因字段上的 `TrDecodable` 约束触发 trait 求解循环，此时建议手写实现；
-//! - 借用输入缓冲的 `&'de str` 仍不支持，借用只针对 arena。
+//! - 不支持借用输入缓冲：解码方向的借用只有 arena 一条轴（`'alloc`）。
 //!
 //! # 已知限制
 //!

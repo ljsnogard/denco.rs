@@ -9,7 +9,7 @@ use abs_denco::de::{Error, Expected, NoArena, TrArena, Unexpected, Visitor, expe
 /// 一个描述「期望数字」的 visitor。
 struct NumberVisitor;
 
-impl<'de, 'alloc, Alloc> Visitor<'de, 'alloc, Alloc> for NumberVisitor
+impl<'alloc, Alloc> Visitor<'alloc, Alloc> for NumberVisitor
 where
     Alloc: TrArena<'alloc> + 'alloc,
 {
@@ -44,11 +44,11 @@ fn render(exp: &dyn Expected) -> String {
 }
 
 /// 模拟 visitor impl 内部（`Alloc` 是 impl 参数）的调用点。
-trait Probe<'de, 'alloc, Alloc> {
+trait Probe<'alloc, Alloc> {
     fn probe(&self) -> String;
 }
 
-impl<'de, 'alloc, Alloc> Probe<'de, 'alloc, Alloc> for NumberVisitor
+impl<'alloc, Alloc> Probe<'alloc, Alloc> for NumberVisitor
 where
     Alloc: TrArena<'alloc> + 'alloc,
 {
@@ -58,34 +58,34 @@ where
     }
 }
 
-fn via_free<'de, 'alloc, Alloc>(visitor: &NumberVisitor) -> String
+fn via_free<'alloc, Alloc>(visitor: &NumberVisitor) -> String
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    NumberVisitor: Visitor<'de, 'alloc, Alloc>,
+    NumberVisitor: Visitor<'alloc, Alloc>,
 {
     render(&expected(visitor))
 }
 
-fn via_method<'de, 'alloc, Alloc>(visitor: &NumberVisitor) -> String
+fn via_method<'alloc, Alloc>(visitor: &NumberVisitor) -> String
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    NumberVisitor: Visitor<'de, 'alloc, Alloc>,
+    NumberVisitor: Visitor<'alloc, Alloc>,
 {
     render(&visitor.expected())
 }
 
-fn invalid_via_free<'de, 'alloc, Alloc>() -> String
+fn invalid_via_free<'alloc, Alloc>() -> String
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    NumberVisitor: Visitor<'de, 'alloc, Alloc>,
+    NumberVisitor: Visitor<'alloc, Alloc>,
 {
     TestError::invalid_type(Unexpected::Bool(true), &expected(&NumberVisitor)).to_string()
 }
 
-fn invalid_via_method<'de, 'alloc, Alloc>() -> String
+fn invalid_via_method<'alloc, Alloc>() -> String
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    NumberVisitor: Visitor<'de, 'alloc, Alloc>,
+    NumberVisitor: Visitor<'alloc, Alloc>,
 {
     TestError::invalid_type(Unexpected::Bool(true), &NumberVisitor.expected()).to_string()
 }
@@ -127,7 +127,7 @@ fn expected_method_in_generic_helper_() {
 ///   in-impl form works.
 #[test]
 fn expected_with_turbofish_in_impl_() {
-    let value = <NumberVisitor as Probe<'_, '_, NoArena>>::probe(&NumberVisitor);
+    let value = <NumberVisitor as Probe<'_, NoArena>>::probe(&NumberVisitor);
     assert_eq!(value, "a number");
 }
 

@@ -8,7 +8,7 @@
 /// 除 `visitor` 之外的参数：
 ///
 /// ```ignore
-/// impl<'de, 'alloc> TrDecoder<'de, 'alloc, NoArena> for MyDecoder {
+/// impl<'alloc> TrDecoder<'alloc, NoArena> for MyDecoder {
 ///     type Error = MyError;
 ///     type DecodeAnyAsync<'a, V> = MyAnyFuture<'a, V> where ...;
 ///
@@ -25,8 +25,8 @@
 /// }
 /// ```
 ///
-/// 宏假定 `impl` 的 trait 泛型生命周期名为 `'de` / `'alloc`，allocator 类型
-/// 由开头的 `alloc = ...;` 给出，并且该 `impl` 已经定义了 `DecodeAnyAsync`。
+/// 宏假定 `impl` 的 trait 泛型生命周期名为 `'alloc`，allocator 类型由开头的
+/// `alloc = ...;` 给出，并且该 `impl` 已经定义了 `DecodeAnyAsync`。
 ///
 /// # Panics
 ///
@@ -47,18 +47,16 @@ macro_rules! forward_to_decode_any {
     (@impl $alloc:ty; $method:ident => $future:ident) => {
         type $future<'a, V> = Self::DecodeAnyAsync<'a, V>
         where
-            'de: 'a,
             'alloc: 'a,
-            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
+            V: $crate::de::Visitor<'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a;
 
         fn $method<'a, V>(self, visitor: V) -> Self::$future<'a, V>
         where
-            'de: 'a,
             'alloc: 'a,
-            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
+            V: $crate::de::Visitor<'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a,
@@ -69,18 +67,16 @@ macro_rules! forward_to_decode_any {
     (@impl $alloc:ty; $method:ident => $future:ident ( $($arg:ident : $ty:ty),* )) => {
         type $future<'a, V> = Self::DecodeAnyAsync<'a, V>
         where
-            'de: 'a,
             'alloc: 'a,
-            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
+            V: $crate::de::Visitor<'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a;
 
         fn $method<'a, V>(self, $($arg: $ty,)* visitor: V) -> Self::$future<'a, V>
         where
-            'de: 'a,
             'alloc: 'a,
-            V: $crate::de::Visitor<'de, 'alloc, $alloc> + 'a,
+            V: $crate::de::Visitor<'alloc, $alloc> + 'a,
             V::Value: 'a,
             Self: 'a,
             Self::Error: 'a,

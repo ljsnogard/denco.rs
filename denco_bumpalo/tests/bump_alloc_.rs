@@ -103,7 +103,7 @@ fn decode_into_bump_arena_reference() {
     let mut input: &[u8] = &bytes;
     let decoder = MpDecoder::new_in(&mut input, &bump);
     let value: BumpBox<'_, Point> = block_on_(
-        <BumpBox<'_, Point> as TrDecodable<'_, '_, BumpArena>>::decode_async(decoder)
+        <BumpBox<'_, Point> as TrDecodable<'_, BumpArena>>::decode_async(decoder)
             .may_cancel_with(NonCancellableToken::new()),
     )
     .expect("引用版解码应当成功");
@@ -132,7 +132,7 @@ fn decode_into_bump_arena_reference_from_json() {
     let mut input: &[u8] = bytes;
     let mut decoder = json_denco::JsonDecoder::new_in(&mut input, &bump);
     let value: BumpBox<'_, Point> = block_on_(
-        <BumpBox<'_, Point> as TrDecodable<'_, '_, BumpArena>>::decode_async(&mut decoder)
+        <BumpBox<'_, Point> as TrDecodable<'_, BumpArena>>::decode_async(&mut decoder)
             .may_cancel_with(NonCancellableToken::new()),
     )
     .expect("JSON 引用版解码应当成功");
@@ -158,7 +158,7 @@ fn decode_bump_box_outlives_input() {
         let mut input: &[u8] = &bytes;
         let decoder = MpDecoder::new_in(&mut input, &bump);
         block_on_(
-            <BumpBox<'_, Point> as TrDecodable<'_, '_, BumpArena>>::decode_async(decoder)
+            <BumpBox<'_, Point> as TrDecodable<'_, BumpArena>>::decode_async(decoder)
                 .may_cancel_with(NonCancellableToken::new()),
         )
         .expect("引用版解码应当成功")

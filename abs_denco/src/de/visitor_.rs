@@ -10,15 +10,15 @@ use gen_mcf2::gen_may_cancel_future;
 use super::{EnumAccess, Error, Expected, MapAccess, SeqAccess, TrArena, TrDecoder, Unexpected};
 
 #[gen_may_cancel_future(VisitString)]
-async fn visit_string_async<'de, 'alloc, 'a, Alloc, V, E, C>(
+async fn visit_string_async<'alloc, 'a, Alloc, V, E, C>(
     visitor: V,
     v: String,
     cancel: C,
 ) -> Result<V::Value, E>
 where
-    'de: 'a,
+    'alloc: 'a,
     Alloc: TrArena<'alloc> + 'alloc,
-    V: Visitor<'de, 'alloc, Alloc> + 'a,
+    V: Visitor<'alloc, Alloc> + 'a,
     V::Value: 'a,
     E: Error + 'a,
     C: TrCancellationToken,
@@ -27,15 +27,15 @@ where
 }
 
 #[gen_may_cancel_future(VisitByteBuf)]
-async fn visit_byte_buf_async<'de, 'alloc, 'a, Alloc, V, E, C>(
+async fn visit_byte_buf_async<'alloc, 'a, Alloc, V, E, C>(
     visitor: V,
     v: Vec<u8>,
     cancel: C,
 ) -> Result<V::Value, E>
 where
-    'de: 'a,
+    'alloc: 'a,
     Alloc: TrArena<'alloc> + 'alloc,
-    V: Visitor<'de, 'alloc, Alloc> + 'a,
+    V: Visitor<'alloc, Alloc> + 'a,
     V::Value: 'a,
     E: Error + 'a,
     C: TrCancellationToken,
@@ -47,15 +47,15 @@ where
 }
 
 #[gen_may_cancel_future(VisitChar)]
-async fn visit_char_async<'de, 'alloc, 'a, Alloc, V, E, C>(
+async fn visit_char_async<'alloc, 'a, Alloc, V, E, C>(
     visitor: V,
     v: char,
     cancel: C,
 ) -> Result<V::Value, E>
 where
-    'de: 'a,
+    'alloc: 'a,
     Alloc: TrArena<'alloc> + 'alloc,
-    V: Visitor<'de, 'alloc, Alloc> + 'a,
+    V: Visitor<'alloc, Alloc> + 'a,
     V::Value: 'a,
     E: Error + 'a,
     C: TrCancellationToken,
@@ -71,16 +71,18 @@ where
 /// 类型，然后调用对应的 `visit_*` 方法；每个 `visit_*` 方法返回一个
 /// [`TrMayCancel`] 的实现。
 ///
-/// 与同步版 `serde::de::Visitor` 相比，默认实现尽量保持相同的语义：
-/// 窄整数会转发到宽整数，借用的字符串/字节会转发到对应的非借用方法，
-/// `visit_string` / `visit_byte_buf` / `visit_char` 也通过 `gen_mcf2`
-/// 生成的 helper future 转发到对应的借用方法。
+/// 与同步版 `serde::de::Visitor` 相比，默认实现尽量保持相同的转发语义：
+/// 窄整数会转发到宽整数，`visit_string` / `visit_byte_buf` / `visit_char`
+/// 也通过 `gen_mcf2` 生成的 helper future 转发到 `visit_str` / `visit_bytes`。
+/// serde 的 `visit_borrowed_str` / `visit_borrowed_bytes`（输入借用入口）在
+/// denco 中不存在：`visit_str` / `visit_bytes` 的 `'a` 只是本次 visit 的临时
+/// 视图寿命，解出的借用值只能来自 decoder 的 arena。
 ///
 /// # Errors
 ///
 /// 每个 `visit_*` 方法在输入类型不符时返回 `E`。默认实现总是返回
 /// [`Unexpected`] 描述的类型错误。
-pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
+pub trait Visitor<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 访问者最终产生的值。
     type Value;
 
@@ -91,15 +93,14 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ///
     /// serde 用户请注意：serde 的 `Visitor` 只有 `'de`，因此 serde 能提供
     /// `impl<V: Visitor<'de>> Expected for V`，手写 visitor 里直接写 `&self`
-    /// 就能当 `&dyn Expected`。denco 的 `Visitor<'de, 'alloc, Alloc>` 多了
-    /// `Alloc` 类型参数，同样的 blanket impl 会触发 **E0207**（类型参数未被
-    /// 约束），所以必须显式适配。
+    /// 就能当 `&dyn Expected`。denco 的 `Visitor<'alloc, Alloc>` 没有输入生命周期，
+    /// 但多了 `Alloc` 类型参数；同样的 blanket impl 会触发 **E0207**（类型参数
+    /// 未被约束），所以必须显式适配。
     ///
-    /// 本方法适合**参数已确定**的泛型 helper（`V: Visitor<'de, 'alloc, Alloc>`
-    /// 在作用域内）。visitor impl 的 `visit_*` 方法体里，`self` 的类型通常不
+    /// 本方法适合**参数已确定**的泛型 helper（`V: Visitor<'alloc, Alloc>` 在作用域内）。visitor impl 的 `visit_*` 方法体里，`self` 的类型通常不
     /// 携带 `Alloc`，此时 `self.expected()` 会因参数推断歧义报 E0282；请改用
     /// 自由函数 `&expected::<Alloc, _>(&self)`（把 `Alloc` 换成 impl 的参数名）
-    /// 或全限定 `<Self as Visitor<'de, 'alloc, Alloc>>::expected(self)`，也可以
+    /// 或全限定 `<Self as Visitor<'alloc, Alloc>>::expected(self)`，也可以
     /// 直接传静态描述字符串。详见 [`Expected`] 文档。
     ///
     /// ```
@@ -107,8 +108,7 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ///
     /// struct MyVisitor;
     ///
-    /// impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'de, 'alloc, Alloc>
-    ///     for MyVisitor
+    /// impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for MyVisitor
     /// {
     ///     type Value = ();
     ///
@@ -119,9 +119,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ///
     /// fn takes(_: &dyn Expected) {}
     ///
-    /// fn demo<'de, 'alloc, Alloc, V>(v: &V)
+    /// fn demo<'alloc, Alloc, V>(v: &V)
     /// where
-    ///     V: Visitor<'de, 'alloc, Alloc>,
+    ///     V: Visitor<'alloc, Alloc>,
     ///     Alloc: TrArena<'alloc> + 'alloc,
     /// {
     ///     // 泛型 helper 中两种写法都能推断
@@ -365,10 +365,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         Self: 'a,
         Self::Value: 'a,
         E: Error + 'a,
-        'de: 'a,
         'alloc: 'a,
     {
-        VisitCharAsync::<'de, 'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
+        VisitCharAsync::<'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
     }
 
     /// 输入包含一个字符串切片。
@@ -392,21 +391,6 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         )))
     }
 
-    /// 输入包含一个与 `'de` 同寿命的字符串；默认转发到
-    /// [`Visitor::visit_str`]。
-    fn visit_borrowed_str<'a, E>(
-        self,
-        v: &'de str,
-    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
-    where
-        Self: 'a,
-        Self::Value: 'a,
-        E: Error + 'a,
-        'de: 'a,
-    {
-        self.visit_str(v)
-    }
-
     /// 输入包含一个拥有所有权的字符串。
     ///
     /// # Errors
@@ -420,10 +404,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         Self: 'a,
         Self::Value: 'a,
         E: Error + 'a,
-        'de: 'a,
         'alloc: 'a,
     {
-        VisitStringAsync::<'de, 'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
+        VisitStringAsync::<'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
     }
 
     /// 输入包含一段字节切片。
@@ -447,21 +430,6 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         )))
     }
 
-    /// 输入包含一段与 `'de` 同寿命的字节；默认转发到
-    /// [`Visitor::visit_bytes`]。
-    fn visit_borrowed_bytes<'a, E>(
-        self,
-        v: &'de [u8],
-    ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
-    where
-        Self: 'a,
-        Self::Value: 'a,
-        E: Error + 'a,
-        'de: 'a,
-    {
-        self.visit_bytes(v)
-    }
-
     /// 输入包含一段拥有所有权的字节。
     ///
     /// # Errors
@@ -475,10 +443,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         Self: 'a,
         Self::Value: 'a,
         E: Error + 'a,
-        'de: 'a,
         'alloc: 'a,
     {
-        VisitByteBufAsync::<'de, 'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
+        VisitByteBufAsync::<'alloc, 'a, 'a, Alloc, Self, E>::new(self, v)
     }
 
     /// 输入包含 `None`。
@@ -509,10 +476,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, D::Error>>
     where
         Self: 'a,
-        'de: 'a,
         'alloc: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
     {
         let _ = deserializer;
@@ -550,10 +516,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, D::Error>>
     where
         Self: 'a,
-        'de: 'a,
         'alloc: 'a,
         Self::Value: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
     {
         let _ = deserializer;
@@ -574,10 +539,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         Self: 'a,
-        'de: 'a,
         'alloc: 'a,
         Self::Value: 'a,
-        A: SeqAccess<'de, 'alloc, Alloc> + 'a,
+        A: SeqAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
         let _ = seq;
@@ -598,10 +562,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         Self: 'a,
-        'de: 'a,
         'alloc: 'a,
         Self::Value: 'a,
-        A: MapAccess<'de, 'alloc, Alloc> + 'a,
+        A: MapAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
         let _ = map;
@@ -622,10 +585,9 @@ pub trait Visitor<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, A::Error>>
     where
         Self: 'a,
-        'de: 'a,
         'alloc: 'a,
         Self::Value: 'a,
-        A: EnumAccess<'de, 'alloc, Alloc> + 'a,
+        A: EnumAccess<'alloc, Alloc> + 'a,
         A::Error: 'a,
     {
         let _ = data;

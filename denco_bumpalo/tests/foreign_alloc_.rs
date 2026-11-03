@@ -140,22 +140,22 @@ where
     storage
 }
 
-fn decode_mp_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
+fn decode_mp_<'alloc, T>(bytes: &[u8]) -> T
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
 {
-    let mut input: &'de [u8] = bytes;
+    let mut input: &[u8] = bytes;
     block_on_(
         T::decode_async(MpDecoder::new(&mut input)).may_cancel_with(NonCancellableToken::new()),
     )
     .expect("MessagePack 解码应当成功")
 }
 
-fn decode_json_<'de, 'alloc, T>(bytes: &'de [u8]) -> T
+fn decode_json_<'alloc, T>(bytes: &[u8]) -> T
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
 {
-    let mut input: &'de [u8] = bytes;
+    let mut input: &[u8] = bytes;
     let mut decoder = JsonDecoder::new(&mut input);
     block_on_(T::decode_async(&mut decoder).may_cancel_with(NonCancellableToken::new()))
         .expect("JSON 解码应当成功")

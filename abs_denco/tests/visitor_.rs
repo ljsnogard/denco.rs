@@ -47,10 +47,10 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-/// 只实现借用字符串/字节方法的访问者，用来验证默认转发。
+/// 只实现 `visit_str` / `visit_bytes` 的访问者，用来验证默认转发。
 struct LenVisitor;
 
-impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for LenVisitor {
+impl<'alloc> Visitor<'alloc, NoArena> for LenVisitor {
     type Value = usize;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

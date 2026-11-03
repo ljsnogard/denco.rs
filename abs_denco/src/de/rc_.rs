@@ -12,16 +12,16 @@ use abs_cancel::{TrCancellationToken, TrMayCancel};
 use super::{TrAllocSource, TrArena, TrDecodable, TrDecoder};
 
 #[gen_mcf2::gen_may_cancel_future(DecodeRcOp, pub)]
-async fn decode_rc_async_<'de, 'alloc, 'a, Alloc, T, CA, D, TyTok>(
+async fn decode_rc_async_<'alloc, 'a, Alloc, T, CA, D, TyTok>(
     de: D,
     cancel: TyTok,
 ) -> Result<Rc<T, CA>, D::Error>
 where
     Alloc: TrArena<'alloc> + 'alloc,
-    'de: 'a,
-    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    'alloc: 'a,
+    T: TrDecodable<'alloc, Alloc> + 'alloc,
     CA: TrAllocSource<'alloc, Alloc> + 'a,
-    D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+    D: TrDecoder<'alloc, Alloc> + 'a,
     D::Error: 'a,
     TyTok: TrCancellationToken,
 {
@@ -30,26 +30,23 @@ where
     Result::Ok(Rc::new_in(value, alloc))
 }
 
-impl<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'de, 'alloc, Alloc>
-    for Rc<T, CA>
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc, T, CA> TrDecodable<'alloc, Alloc> for Rc<T, CA>
 where
-    T: TrDecodable<'de, 'alloc, Alloc> + 'de,
+    T: TrDecodable<'alloc, Alloc> + 'alloc,
     CA: TrAllocSource<'alloc, Alloc> + 'alloc,
 {
     type DecodeAsync<'a, D>
-        = DecodeRcOpAsync<'de, 'alloc, 'a, 'a, Alloc, T, CA, D>
+        = DecodeRcOpAsync<'alloc, 'a, 'a, Alloc, T, CA, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, Alloc> + 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
         D::Error: 'a,
         Self: 'a,
     {

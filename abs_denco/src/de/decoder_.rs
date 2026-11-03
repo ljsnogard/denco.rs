@@ -23,7 +23,7 @@ use super::{Error, TrArena, TrStrFromUtf8, Visitor};
 /// 值版解码不依赖它们，引用版解码（`&'alloc mut T` / `Owning<'alloc, T>`）
 /// 通过 [`TrDecoder::allocator`] 取得分配器。不解码进 arena 的格式使用
 /// [`NoArena`](crate::de::NoArena)。
-pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
+pub trait TrDecoder<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 反序列化失败时产生的错误类型。
     type Error: Error;
 
@@ -38,9 +38,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeAnyAsync` 指定。
     type DecodeAnyAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -52,9 +51,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_any<'a, V>(self, visitor: V) -> Self::DecodeAnyAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -64,9 +62,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeBoolAsync` 指定。
     type DecodeBoolAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -78,9 +75,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_bool<'a, V>(self, visitor: V) -> Self::DecodeBoolAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -90,9 +86,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeI8Async` 指定。
     type DecodeI8Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -104,9 +99,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_i8<'a, V>(self, visitor: V) -> Self::DecodeI8Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -116,9 +110,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeI16Async` 指定。
     type DecodeI16Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -130,9 +123,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_i16<'a, V>(self, visitor: V) -> Self::DecodeI16Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -142,9 +134,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeI32Async` 指定。
     type DecodeI32Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -156,9 +147,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_i32<'a, V>(self, visitor: V) -> Self::DecodeI32Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -168,9 +158,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeI64Async` 指定。
     type DecodeI64Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -182,9 +171,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_i64<'a, V>(self, visitor: V) -> Self::DecodeI64Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -194,9 +182,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeI128Async` 指定。
     type DecodeI128Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -208,9 +195,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_i128<'a, V>(self, visitor: V) -> Self::DecodeI128Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -220,9 +206,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeU8Async` 指定。
     type DecodeU8Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -234,9 +219,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_u8<'a, V>(self, visitor: V) -> Self::DecodeU8Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -246,9 +230,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeU16Async` 指定。
     type DecodeU16Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -260,9 +243,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_u16<'a, V>(self, visitor: V) -> Self::DecodeU16Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -272,9 +254,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeU32Async` 指定。
     type DecodeU32Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -286,9 +267,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_u32<'a, V>(self, visitor: V) -> Self::DecodeU32Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -298,9 +278,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeU64Async` 指定。
     type DecodeU64Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -312,9 +291,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_u64<'a, V>(self, visitor: V) -> Self::DecodeU64Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -324,9 +302,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeU128Async` 指定。
     type DecodeU128Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -338,9 +315,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_u128<'a, V>(self, visitor: V) -> Self::DecodeU128Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -350,9 +326,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeF32Async` 指定。
     type DecodeF32Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -364,9 +339,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_f32<'a, V>(self, visitor: V) -> Self::DecodeF32Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -376,9 +350,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeF64Async` 指定。
     type DecodeF64Async<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -390,9 +363,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_f64<'a, V>(self, visitor: V) -> Self::DecodeF64Async<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -402,9 +374,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeCharAsync` 指定。
     type DecodeCharAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -416,9 +387,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_char<'a, V>(self, visitor: V) -> Self::DecodeCharAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -428,9 +398,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeStrAsync` 指定。
     type DecodeStrAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -442,9 +411,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_str<'a, V>(self, visitor: V) -> Self::DecodeStrAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -454,9 +422,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeStringAsync` 指定。
     type DecodeStringAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -468,9 +435,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_string<'a, V>(self, visitor: V) -> Self::DecodeStringAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -480,9 +446,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeBytesAsync` 指定。
     type DecodeBytesAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -494,9 +459,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_bytes<'a, V>(self, visitor: V) -> Self::DecodeBytesAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -506,9 +470,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeByteBufAsync` 指定。
     type DecodeByteBufAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -520,9 +483,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_byte_buf<'a, V>(self, visitor: V) -> Self::DecodeByteBufAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -532,9 +494,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeOptionAsync` 指定。
     type DecodeOptionAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -546,9 +507,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_option<'a, V>(self, visitor: V) -> Self::DecodeOptionAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -558,9 +518,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeUnitAsync` 指定。
     type DecodeUnitAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -572,9 +531,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_unit<'a, V>(self, visitor: V) -> Self::DecodeUnitAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -584,9 +542,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeUnitStructAsync` 指定。
     type DecodeUnitStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -602,9 +559,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         visitor: V,
     ) -> Self::DecodeUnitStructAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -614,9 +570,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeNewtypeStructAsync` 指定。
     type DecodeNewtypeStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -632,9 +587,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         visitor: V,
     ) -> Self::DecodeNewtypeStructAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -644,9 +598,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeSeqAsync` 指定。
     type DecodeSeqAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -658,9 +611,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_seq<'a, V>(self, visitor: V) -> Self::DecodeSeqAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -670,9 +622,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeTupleAsync` 指定。
     type DecodeTupleAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -684,9 +635,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_tuple<'a, V>(self, len: usize, visitor: V) -> Self::DecodeTupleAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -696,9 +646,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeTupleStructAsync` 指定。
     type DecodeTupleStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -715,9 +664,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         visitor: V,
     ) -> Self::DecodeTupleStructAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -727,9 +675,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeMapAsync` 指定。
     type DecodeMapAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -741,9 +688,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_map<'a, V>(self, visitor: V) -> Self::DecodeMapAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -753,9 +699,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeStructAsync` 指定。
     type DecodeStructAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -772,9 +717,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         visitor: V,
     ) -> Self::DecodeStructAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -784,9 +728,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeEnumAsync` 指定。
     type DecodeEnumAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -803,9 +746,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         visitor: V,
     ) -> Self::DecodeEnumAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -815,9 +757,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeIdentifierAsync` 指定。
     type DecodeIdentifierAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -829,9 +770,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_identifier<'a, V>(self, visitor: V) -> Self::DecodeIdentifierAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -841,9 +781,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 返回的 future 类型由实现者通过关联类型 `DecodeIgnoredAnyAsync` 指定。
     type DecodeIgnoredAnyAsync<'a, V>: TrMayCancel<'a, MayCancelOutput = Result<V::Value, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -855,9 +794,8 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
     /// 输入不合法或底层读取失败时返回错误。
     fn decode_ignored_any<'a, V>(self, visitor: V) -> Self::DecodeIgnoredAnyAsync<'a, V>
     where
-        'de: 'a,
         'alloc: 'a,
-        V: Visitor<'de, 'alloc, Alloc> + 'a,
+        V: Visitor<'alloc, Alloc> + 'a,
         V::Value: 'a,
         Self: 'a,
         Self::Error: 'a;
@@ -888,7 +826,6 @@ pub trait TrDecoder<'de, 'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
         self,
     ) -> impl TrMayCancel<'a, MayCancelOutput = Result<S, Self::Error>>
     where
-        'de: 'a,
         'alloc: 'a,
         S: TrStrFromUtf8<'alloc, Alloc> + 'a,
         Self: 'a,

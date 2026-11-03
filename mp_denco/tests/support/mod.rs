@@ -112,9 +112,9 @@ where
 ///
 /// Decode one value from the ring; the reader is passed to the decoder
 /// directly and always takes the owned path.
-pub fn decode_ring_<'de, 'alloc, T>(ring: &mut TestRing) -> T
+pub fn decode_ring_<'alloc, T>(ring: &mut TestRing) -> T
 where
-    T: TrDecodable<'de, 'alloc, NoArena>,
+    T: TrDecodable<'alloc, NoArena>,
 {
     let (_writer, mut reader) = TestRing::split(ring);
     block_on_(async {
@@ -191,7 +191,7 @@ impl TrEncodable for U64Val {
 /// [`U64Val`] 的访问者。
 struct U64ValVisitor;
 
-impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for U64ValVisitor {
+impl<'alloc> Visitor<'alloc, NoArena> for U64ValVisitor {
     type Value = U64Val;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -212,32 +212,29 @@ impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for U64ValVisitor {
 }
 
 #[gen_may_cancel_future(DecodeU64ValOp, pub)]
-async fn decode_u64_val_async_<'de, 'alloc, 'a, D, C>(de: D, cancel: C) -> Result<U64Val, D::Error>
+async fn decode_u64_val_async_<'alloc, 'a, D, C>(de: D, cancel: C) -> Result<U64Val, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
-    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+    D: TrDecoder<'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
     de.decode_u64(U64ValVisitor).may_cancel_with(cancel).await
 }
 
-impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for U64Val {
+impl<'alloc> TrDecodable<'alloc, NoArena> for U64Val {
     type DecodeAsync<'a, D>
-        = DecodeU64ValOpAsync<'de, 'alloc, 'a, 'a, D>
+        = DecodeU64ValOpAsync<'alloc, 'a, 'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -275,7 +272,7 @@ impl TrEncodable for StrVal {
 /// [`StrVal`] 的访问者。
 struct StrValVisitor;
 
-impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for StrValVisitor {
+impl<'alloc> Visitor<'alloc, NoArena> for StrValVisitor {
     type Value = StrVal;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -296,11 +293,10 @@ impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for StrValVisitor {
 }
 
 #[gen_may_cancel_future(DecodeStrValOp, pub)]
-async fn decode_str_val_async_<'de, 'alloc, 'a, D, C>(de: D, cancel: C) -> Result<StrVal, D::Error>
+async fn decode_str_val_async_<'alloc, 'a, D, C>(de: D, cancel: C) -> Result<StrVal, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
-    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+    D: TrDecoder<'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -309,21 +305,19 @@ where
         .await
 }
 
-impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for StrVal {
+impl<'alloc> TrDecodable<'alloc, NoArena> for StrVal {
     type DecodeAsync<'a, D>
-        = DecodeStrValOpAsync<'de, 'alloc, 'a, 'a, D>
+        = DecodeStrValOpAsync<'alloc, 'a, 'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
@@ -360,7 +354,7 @@ impl TrEncodable for BytesVal {
 /// [`BytesVal`] 的访问者。
 struct BytesValVisitor;
 
-impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for BytesValVisitor {
+impl<'alloc> Visitor<'alloc, NoArena> for BytesValVisitor {
     type Value = BytesVal;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -381,14 +375,10 @@ impl<'de, 'alloc> Visitor<'de, 'alloc, NoArena> for BytesValVisitor {
 }
 
 #[gen_may_cancel_future(DecodeBytesValOp, pub)]
-async fn decode_bytes_val_async_<'de, 'alloc, 'a, D, C>(
-    de: D,
-    cancel: C,
-) -> Result<BytesVal, D::Error>
+async fn decode_bytes_val_async_<'alloc, 'a, D, C>(de: D, cancel: C) -> Result<BytesVal, D::Error>
 where
-    'de: 'a,
     'alloc: 'a,
-    D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+    D: TrDecoder<'alloc, NoArena> + 'a,
     D::Error: 'a,
     C: TrCancellationToken,
 {
@@ -397,21 +387,19 @@ where
         .await
 }
 
-impl<'de, 'alloc> TrDecodable<'de, 'alloc, NoArena> for BytesVal {
+impl<'alloc> TrDecodable<'alloc, NoArena> for BytesVal {
     type DecodeAsync<'a, D>
-        = DecodeBytesValOpAsync<'de, 'alloc, 'a, 'a, D>
+        = DecodeBytesValOpAsync<'alloc, 'a, 'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a;
 
     fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
     where
-        'de: 'a,
         'alloc: 'a,
-        D: TrDecoder<'de, 'alloc, NoArena> + 'a,
+        D: TrDecoder<'alloc, NoArena> + 'a,
         D::Error: 'a,
         Self: 'a,
     {
