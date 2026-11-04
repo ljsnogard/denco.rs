@@ -26,6 +26,8 @@ mod sink_;
 #[cfg(feature = "std")]
 mod std_collections_;
 mod str_;
+#[cfg(feature = "str_alloc")]
+mod str_alloc_;
 mod visitor_;
 
 pub use access_::{EnumAccess, MapAccess, SeqAccess, VariantAccess};

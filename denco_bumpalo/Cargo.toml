@@ -18,6 +18,7 @@ abs_denco = { path = "../abs_denco", features = [
     "rc",
     "cow",
     "std",
+    "str_alloc",
 ] }
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 denco_macro = { path = "../denco_macro" }

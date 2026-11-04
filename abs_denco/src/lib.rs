@@ -30,6 +30,7 @@
 //! | `rc` | `Rc<T>`（`Arc<T>` 保持无条件提供） |
 //! | `cow` | `Cow<'a, str>` / `Cow<'a, [T]>`（解码一律得到 `Owned`） |
 //! | `std` | `HashMap` / `HashSet`；隐含 `alloc-collections` |
+//! | `str_alloc` | `abs_str::str_alloc::String<A>` 的编解码（allocator 由 decoder 投影） |
 //!
 //! 需要组合多个特性时直接相加，例如：
 //!
@@ -84,3 +85,13 @@ pub use ser::{TrEncodable, TrEncoder};
 /// 这样通用代码可以把解码结果当作普通智能指针使用。`abs_denco` 本身不强制
 /// 这个约束，因为 [`NoArena`](de::NoArena) 的 `Ref<T>` 就是 `T`。
 pub use abs_mm::res_man::{TrBoxed, TrUnique};
+
+/// 外部依赖的再导出，便于下游在不直接依赖这些 crate 时命名类型。
+pub mod x_deps {
+    /// `abs_mm` 的再导出。
+    pub use abs_mm;
+
+    /// `abs_str` 的再导出；由 `str_alloc` feature 控制。
+    #[cfg(feature = "str_alloc")]
+    pub use abs_str;
+}

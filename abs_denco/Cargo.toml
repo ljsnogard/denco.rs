@@ -9,7 +9,7 @@ license.workspace = true
 # 默认不开启任何容器实现：`abs_denco` 的基础实现只依赖 `alloc`，保持最小可用面。
 # 所有容器实现都按 `A: Allocator` 泛化；解码的 allocator 由 `TrAllocSource`
 # 从 decoder 的 arena 投影得到（`Global` 或 `&'alloc A`）。
-default = []
+default = ["str_alloc"]
 
 # `alloc::collections` 中的通用容器：`BTreeMap` / `BTreeSet` / `VecDeque` /
 # `LinkedList` / `BinaryHeap`。
@@ -25,10 +25,17 @@ cow = []
 # 并隐含 `alloc-collections`（与 serde 的 `std => alloc` 一致）。
 std = ["alloc-collections"]
 
+# `abs_str::String<A>` 的编解码实现。解码时 allocator 由 `TrAllocSource` 从
+# decoder 的 arena 投影：`String<Global>` 与普通 `String` 等价，
+# `String<&'alloc A>` 借用 decoder 的 arena。默认开启。
+str_alloc = ["dep:abs_str"]
+
 [dependencies]
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 abs_mm = { git = "https://gitee.com/lino_snsalias/abs_mm.git", branch = "dev/0.3.0" }
 gen_mcf2 = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
+
+abs_str = { git = "https://gitee.com/lino_snsalias/abs_str-rs.git", default-features = false, features = ["str_alloc"], optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

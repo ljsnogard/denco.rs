@@ -17,6 +17,8 @@ mod impossible_;
 mod rc_;
 #[cfg(feature = "std")]
 mod std_collections_;
+#[cfg(feature = "str_alloc")]
+mod str_alloc_;
 
 pub use encodable_::TrEncodable;
 pub use encoder_::{
