@@ -2,6 +2,12 @@
 
 **日期**：2026-11-04
 **分支**：`exp/remove-de`
+
+**更新（2026-11-08）**：`string_` 模块已删除，`BumpString` 不再由本 crate
+定义；`denco_bumpalo` 现在直接重导出 `abs_str::str_alloc::String`。下文保留
+模块拆分时的历史记录，当前结构以
+[`2026-11-08-unify-alloc-string.md`](2026-11-08-unify-alloc-string.md) 为准。
+
 **结论**：把原本 440 行、全部堆在 `lib.rs` 的实现拆成 `arena_` / `box_` /
 `string_` 三个模块；`lib.rs` 只保留 crate 文档、`mod` 声明和逐项 `pub use`，
 公开路径不变。

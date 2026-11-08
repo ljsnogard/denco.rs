@@ -1,7 +1,7 @@
-//! `abs_str::str_alloc::String` 的端到端测试（`str_alloc` feature）。
+//! `denco_bumpalo` 重导出的 allocator `String` 的端到端测试（`str_alloc` feature）。
 //!
-//! End-to-end tests for `abs_str::str_alloc::String` under the `str_alloc`
-//! feature.
+//! End-to-end tests for the allocator `String` re-exported by `denco_bumpalo`
+//! under the `str_alloc` feature.
 //!
 //! 验证两件事：
 //!
@@ -20,9 +20,8 @@ use abs_cancel::{NonCancellableToken, TrMayCancel};
 use abs_denco::{
     de::{NoArena, TrDecodable},
     ser::TrEncodable,
-    x_deps::abs_str::str_alloc::String as AllocString,
 };
-use denco_bumpalo::BumpArena;
+use denco_bumpalo::{BumpArena, String as AllocString};
 use json_denco::{JsonDecoder, JsonEncoder};
 use mp_denco::{MpDecoder, MpEncoder};
 
@@ -82,6 +81,24 @@ where
     };
     storage.truncate(written);
     storage
+}
+
+/// 测试目标：`denco_bumpalo::String` 与 `abs_str` 的 allocator `String` 是同一类型。
+/// Test goal: `denco_bumpalo::String` is the same type as abs_str's allocator
+/// `String`.
+///
+/// - 手段：把 `denco_bumpalo::String<Global>` 直接赋给
+///   `abs_denco::x_deps::abs_str::str_alloc::String<Global>` 变量。
+///   / How: assign a `denco_bumpalo::String<Global>` to a variable of type
+///   `abs_denco::x_deps::abs_str::str_alloc::String<Global>`.
+/// - 判断：赋值能通过编译，证明 `denco_bumpalo::String` 只是重新导出，而不是
+///   另一个新类型。
+///   / What: the assignment compiles, proving `denco_bumpalo::String` is only a
+///   re-export, not a separate type.
+#[test]
+fn string_reexport_is_abs_str_string_() {
+    let value: AllocString = AllocString::new_in(std::alloc::Global);
+    let _: abs_denco::x_deps::abs_str::str_alloc::String = value;
 }
 
 /// 测试目标：MessagePack 把字符串解成 `String<Global>`（无 arena）。

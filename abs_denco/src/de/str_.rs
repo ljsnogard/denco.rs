@@ -1,11 +1,11 @@
 //! 用 decoder 的 arena 构造「类似 `String`」的类型。
 //!
 //! [`TrStrFromUtf8`] 把「如何从一段已校验的 UTF-8 文本得到目标字符串」
-//! 与具体格式解耦：`String`、`BumpString`、`&'alloc str` 都可以实现它，
-//! 反序列化路径只依赖该 trait。
+//! 与具体格式解耦：`String`、`abs_str::str_alloc::String`、`&'alloc str`
+//! 都可以实现它，反序列化路径只依赖该 trait。
 //!
 //! 与本 crate 其它异步点一致，构造返回 [`TrMayCancel`] future；同步实现
-//! （`String`、bumpalo 的 `BumpString`）用 `core::future::Ready`。
+//! （`String`、`abs_str::str_alloc::String`）用 `core::future::Ready`。
 
 use alloc::string::String;
 use core::{convert::Infallible, future, str};
