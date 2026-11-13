@@ -18,7 +18,7 @@ use crate::box_::BumpBox;
 ///
 /// 它**不实现 `Clone`**：clone 一个 arena 没有共享语义。反序列化过程中需要
 /// 「借用」同一个 arena 时，通过 `&'alloc BumpArena` 传给解码器
-/// （`MpDecoder::new_in` 等），容器与 `BumpBox` / `BumpString` 因此共享它，
+/// （`MpDecoder::new_in` 等），容器与 `BumpBox` / 重导出的 `String` 因此共享它，
 /// 而不是各自新建 arena。
 ///
 /// # 语义
@@ -122,13 +122,11 @@ impl core::error::Error for BumpArenaError {}
 impl<'alloc> TrArena<'alloc> for BumpArena {
     type Error = BumpArenaError;
 
-    type Ref<T: 'alloc>
-        = BumpBox<'alloc, T>
+    type Ref<T: 'alloc> = BumpBox<'alloc, T>
     where
         Self: 'alloc;
 
-    type AllocValueAsync<'a, T>
-        = future::Ready<Result<BumpBox<'alloc, T>, BumpArenaError>>
+    type AllocValueAsync<'a, T> = future::Ready<Result<BumpBox<'alloc, T>, BumpArenaError>>
     where
         'alloc: 'a,
         T: 'alloc + 'a,
@@ -159,8 +157,7 @@ impl<'alloc> TrArena<'alloc> for BumpArena {
 }
 
 impl<'alloc> TrArenaBytes<'alloc> for BumpArena {
-    type AllocBytesAsync<'a>
-        = future::Ready<Result<&'alloc [u8], BumpArenaError>>
+    type AllocBytesAsync<'a> = future::Ready<Result<&'alloc [u8], BumpArenaError>>
     where
         'alloc: 'a,
         Self: 'alloc + 'a;

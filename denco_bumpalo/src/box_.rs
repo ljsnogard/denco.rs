@@ -2,12 +2,13 @@
 
 use core::ops::{Deref, DerefMut};
 
+use bumpalo::boxed::Box as BumpaloBox;
+
 use abs_cancel::{TrCancellationToken, TrMayCancel};
 use abs_denco::{
     TrBoxed, TrUnique,
     de::{Error, TrArena, TrDecodable, TrDecoder},
 };
-use bumpalo::boxed::Box as BumpaloBox;
 use gen_mcf2::gen_may_cancel_future;
 
 use crate::arena_::BumpArena;
@@ -56,16 +57,16 @@ impl<T: ?Sized> TrUnique for BumpBox<'_, T> {}
 
 /// 把值版解码结果放进 bump arena，返回 [`BumpBox`] 句柄。
 #[gen_may_cancel_future(DecodeBumpBoxOp, pub, new(pub))]
-async fn decode_bump_box_async_<'alloc, 'a, T, D, C>(
+async fn decode_bump_box_async_<'alloc, 'a, T, D, K>(
     de: D,
-    cancel: C,
+    cancel: K,
 ) -> Result<BumpBox<'alloc, T>, D::Error>
 where
     'alloc: 'a,
     T: TrDecodable<'alloc, BumpArena> + 'alloc,
     D: TrDecoder<'alloc, BumpArena> + 'a,
     D::Error: Error + 'a,
-    C: TrCancellationToken,
+    K: TrCancellationToken,
 {
     let arena = de.allocator();
     let value = T::decode_async(de)
@@ -82,8 +83,7 @@ impl<'alloc, T> TrDecodable<'alloc, BumpArena> for BumpBox<'alloc, T>
 where
     T: TrDecodable<'alloc, BumpArena> + 'alloc,
 {
-    type DecodeAsync<'a, D>
-        = DecodeBumpBoxOpAsync<'alloc, 'a, 'a, T, D>
+    type DecodeAsync<'a, D> = DecodeBumpBoxOpAsync<'alloc, 'a, 'a, T, D>
     where
         'alloc: 'a,
         D: TrDecoder<'alloc, BumpArena> + 'a,

@@ -1,6 +1,6 @@
-//! `BumpArena` 与 `BumpString` 的集成测试。
+//! `BumpArena` 与重导出的 allocator `String` 的集成测试。
 //!
-//! Integration tests for `BumpArena` and `BumpString`.
+//! Integration tests for `BumpArena` and the re-exported allocator `String`.
 
 #![feature(impl_trait_in_assoc_type)]
 
@@ -11,7 +11,7 @@ use core::{
 
 use abs_cancel::{NonCancellableToken, TrMayCancel};
 use abs_denco::de::TrDecodable;
-use denco_bumpalo::{BumpArena, BumpBox, BumpString};
+use denco_bumpalo::{BumpArena, BumpBox, String as AllocString};
 use mp_denco::MpDecoder;
 
 /// 立即完成的测试执行器。
@@ -53,27 +53,31 @@ fn decode_vec_with_bump_alloc() {
     assert!(bump.allocated_bytes() > 0, "容器应使用 decoder 的 arena");
 }
 
-/// 测试目标：`BumpString` 可以借用 decoder 的 `BumpArena` 完成解码。
-/// Test goal: `BumpString` can borrow the decoder's `BumpArena`.
+/// 测试目标：重导出的 allocator `String` 可以借用 decoder 的 `BumpArena` 完成解码。
+/// Test goal: the re-exported allocator `String` can borrow the decoder's
+/// `BumpArena`.
 ///
 /// - 手段：用 `MpDecoder::new_in(&mut input, &bump)` 解码
-///   `BumpString<&BumpArena>`，输入是 MessagePack fixstr `0xa5` + `"hello"`。
-///   / How: decode `BumpString<&BumpArena>` from the MessagePack fixstr
+///   `AllocString<&BumpArena>`，输入是 MessagePack fixstr `0xa5` + `"hello"`。
+///   / How: decode `AllocString<&BumpArena>` from the MessagePack fixstr
 ///   `0xa5` + `"hello"` with `MpDecoder::new_in(&mut input, &bump)`.
-/// - 判断：字符串内容为 `"hello"`，且 arena 的 `allocated_bytes()` 增长。
-///   / What: the content is `"hello"` and the arena's `allocated_bytes()` grows.
+/// - 判断：字符串内容为 `"hello"`，`as_bytes()` 与内容一致，且 arena 的
+///   `allocated_bytes()` 增长。
+///   / What: the content is `"hello"`, `as_bytes()` matches it, and the arena's
+///   `allocated_bytes()` grows.
 #[test]
-fn decode_bump_string() {
+fn decode_alloc_string_() {
     let bump = BumpArena::new();
     let bytes = [0xa5u8, b'h', b'e', b'l', b'l', b'o'];
     let mut input: &[u8] = &bytes;
     let decoder = MpDecoder::new_in(&mut input, &bump);
-    let value: BumpString<&BumpArena> = block_on_(
-        BumpString::<&BumpArena>::decode_async(decoder).may_cancel_with(NonCancellableToken::new()),
+    let value: AllocString<&BumpArena> = block_on_(
+        AllocString::<&BumpArena>::decode_async(decoder)
+            .may_cancel_with(NonCancellableToken::new()),
     )
     .expect("解码应当成功");
     assert_eq!(&*value, "hello");
-    assert_eq!(value.as_bytes_(), b"hello");
+    assert_eq!(value.as_bytes(), b"hello");
     assert!(bump.allocated_bytes() > 0, "字符串应使用 decoder 的 arena");
 }
 

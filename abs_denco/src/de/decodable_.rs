@@ -45,8 +45,8 @@ pub trait TrDecodable<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
 /// 定义是 `for<'alloc> TrDecodable<'alloc, NoArena>`。解码方向不再有输入借用
 /// 生命周期之后，这个约束表达的是「与 arena 无关的 owned 结果」：
 ///
-/// - `String`、`Vec<T>`、`Cow<'a, str>`、`BumpString<Global>` 等满足——
-///   它们的 impl 对所有 `'alloc` 都成立；
+/// - `String`、`Vec<T>`、`Cow<'a, str>`、`abs_str::str_alloc::String<Global>`
+///   等满足——它们的 impl 对所有 `'alloc` 都成立；
 /// - `&'alloc str` / `&'alloc [u8]` **不**满足：它们需要 `TrArenaBytes`，
 ///   而 `NoArena` 不实现；
 /// - [`BumpBox<'alloc, T>`](https://docs.rs/denco_bumpalo) 不满足：`Self`
