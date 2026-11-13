@@ -243,3 +243,77 @@ fn long_string_with_escapes_() {
         serde_json::from_slice(&json_bytes).expect("serde_json 应能解析长转义字符串");
     assert_eq!(from_json, value);
 }
+
+//-- ---- `()` 编解码 ---- ------------------------------------------------------
+
+/// 一个包含 `()` 字段的派生结构体。
+///
+/// A derived struct containing a `()` field.
+#[derive(
+    Debug,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    denco_macro::TrEncodable,
+    denco_macro::TrDecodable,
+)]
+struct UnitField {
+    unit_: (),
+    value_: u8,
+}
+
+/// 验证 `()` 编码为 JSON `null` 并能解码回来。
+/// Verify `()` encodes as JSON `null` and decodes back.
+///
+/// - 测试目标 / Goal: 确认 `abs_denco` 为 `()` 提供的默认实现可用。
+/// - 手段 / Method: 用 `json_denco` 编码 `()`，再解码 `null`。
+/// - 判断 / Assert: 编码字节为 `null`，解码结果为 `()`。
+#[test]
+fn unit_roundtrip_() {
+    let buf = encode_to_vec_(&());
+    assert_eq!(buf, b"null".to_vec());
+    assert_eq!(decode_from_slice_::<()>(b"null"), ());
+}
+
+/// 验证非 `null` 输入解码为 `()` 时返回错误。
+/// Verify decoding a non-null input as `()` returns an error.
+///
+/// - 测试目标 / Goal: `UnitVisitor` 只接受 `visit_unit`，其他类型应被拒绝。
+/// - 手段 / Method: 用 `json_denco` 从数字 `1` 解码 `()`。
+/// - 判断 / Assert: 返回 `Err`。
+#[test]
+fn decode_unit_rejects_non_unit_() {
+    let mut input: &[u8] = b"1";
+    let mut decoder = JsonDecoder::new(&mut input);
+    let out = block_on_(async {
+        <()>::decode_async(&mut decoder)
+            .may_cancel_with(NonCancellableToken::new())
+            .await
+    });
+    assert!(out.is_err());
+}
+
+/// 验证包含 `()` 字段的派生结构体与 `serde_json` 双向互通。
+/// Verify a derived struct containing a `()` field interoperates with `serde_json`.
+///
+/// - 测试目标 / Goal: 派生代码对 `()` 字段的 `TrEncodable` / `TrDecodable` 约束成立，
+///   且 JSON 表示与 serde 一致。
+/// - 手段 / Method: 编码 `UnitField { unit_: (), value_: 7 }` 后交叉解码，
+///   并比较两侧的编码字节。
+/// - 判断 / Assert: 两个方向的解码结果都等于原值，编码字节完全相同。
+#[test]
+fn unit_field_interop_() {
+    let value = UnitField {
+        unit_: (),
+        value_: 7,
+    };
+    let json_bytes = encode_to_vec_(&value);
+    let from_json: UnitField =
+        serde_json::from_slice(&json_bytes).expect("serde_json 应能解析含 unit 字段的对象");
+    assert_eq!(from_json, value);
+
+    let serde_bytes = serde_json::to_vec(&value).expect("serde_json 编码应当成功");
+    assert_eq!(serde_bytes, json_bytes);
+    let from_denco: UnitField = decode_from_slice_(&serde_bytes);
+    assert_eq!(from_denco, value);
+}

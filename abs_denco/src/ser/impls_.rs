@@ -49,6 +49,26 @@ impl_encode_scalar_!(f32, encode_f32, EncodeF32Async);
 impl_encode_scalar_!(f64, encode_f64, EncodeF64Async);
 impl_encode_scalar_!(char, encode_char, EncodeCharAsync);
 
+impl TrEncodable for () {
+    type EncodeAsync<'a, S>
+        = S::EncodeUnitAsync<'a>
+    where
+        Self: 'a,
+        S: TrEncoder + 'a,
+        S::Ok: 'a,
+        S::Error: 'a;
+
+    fn encode_async<'a, S>(&'a self, encoder: S) -> Self::EncodeAsync<'a, S>
+    where
+        Self: 'a,
+        S: TrEncoder + 'a,
+        S::Ok: 'a,
+        S::Error: 'a,
+    {
+        encoder.encode_unit()
+    }
+}
+
 impl TrEncodable for str {
     type EncodeAsync<'a, S>
         = S::EncodeStrAsync<'a, 'a>

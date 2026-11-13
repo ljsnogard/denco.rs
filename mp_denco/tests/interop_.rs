@@ -2405,3 +2405,14 @@ fn enum_variants_cross_() {
         check_cross_(&shape);
     }
 }
+
+/// 验证 `()` 与 `rmp-serde` 的双向互操作。
+/// Verify bidirectional interop for `()`.
+///
+/// - 测试目标 / Goal: `()` 在 `mp_denco` 与 `rmp-serde` 中都对应 nil。
+/// - 手段 / Method: 对 `()` 走四向交叉验证：字节一致、mp→rmp、rmp→mp、named→mp。
+/// - 判断 / Assert: 默认字节与 `rmp_serde::to_vec` 相等，各路径都解回 `()`。
+#[test]
+fn unit_cross_() {
+    check_cross_(&());
+}

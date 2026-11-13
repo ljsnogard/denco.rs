@@ -444,6 +444,60 @@ impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'alloc, Alloc> for boo
     }
 }
 
+struct UnitVisitor;
+
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for UnitVisitor {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("unit")
+    }
+
+    fn visit_unit<'a, E>(self) -> impl TrMayCancel<'a, MayCancelOutput = Result<Self::Value, E>>
+    where
+        Self: 'a,
+        Self::Value: 'a,
+        E: Error + 'a,
+    {
+        future::ready(Ok(()))
+    }
+}
+
+#[gen_mcf2::gen_may_cancel_future(DecodeUnitOp)]
+pub async fn decode_unit_op_async_<'alloc, 'a, Alloc, D, C>(
+    de: D,
+    cancel: C,
+) -> Result<(), D::Error>
+where
+    Alloc: TrArena<'alloc> + 'alloc,
+    'alloc: 'a,
+    D: TrDecoder<'alloc, Alloc> + 'a,
+    D::Error: 'a,
+    C: TrCancellationToken,
+{
+    de.decode_unit(UnitVisitor).may_cancel_with(cancel).await
+}
+
+impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> TrDecodable<'alloc, Alloc> for () {
+    type DecodeAsync<'a, D>
+        = DecodeUnitOpAsync<'alloc, 'a, 'a, Alloc, D>
+    where
+        'alloc: 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
+        D::Error: 'a,
+        Self: 'a;
+
+    fn decode_async<'a, D>(de: D) -> Self::DecodeAsync<'a, D>
+    where
+        'alloc: 'a,
+        D: TrDecoder<'alloc, Alloc> + 'a,
+        D::Error: 'a,
+        Self: 'a,
+    {
+        DecodeUnitOpAsync::new(de)
+    }
+}
+
 struct CharVisitor;
 
 impl<'alloc, Alloc: TrArena<'alloc> + 'alloc> Visitor<'alloc, Alloc> for CharVisitor {

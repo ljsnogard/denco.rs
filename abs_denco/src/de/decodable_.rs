@@ -65,6 +65,7 @@ pub trait TrDecodable<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
 ///
 /// fn assert_owned<T: TrDecodableOwned>() {}
 ///
+/// assert_owned::<()>();
 /// assert_owned::<String>();
 /// assert_owned::<Vec<u32>>();
 /// assert_owned::<Cow<'static, str>>();

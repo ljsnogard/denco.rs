@@ -1052,3 +1052,54 @@ fn encoder_rejects_cancelled_token() {
     });
     assert!(out.is_err());
 }
+
+//-- ---- `()` 编解码 ---- ------------------------------------------------------
+
+/// 一个包含 `()` 字段的派生结构体。
+///
+/// A derived struct containing a `()` field.
+#[derive(Debug, PartialEq, Eq, denco_macro::TrEncodable, denco_macro::TrDecodable)]
+struct UnitField {
+    unit_: (),
+    value_: u8,
+}
+
+/// 验证 `()` 编码为 MessagePack nil 并能解码回来。
+/// Verify `()` encodes as MessagePack nil and decodes back.
+///
+/// - 测试目标 / Goal: 确认 `abs_denco` 为 `()` 提供的默认实现可用。
+/// - 手段 / Method: 用 `mp_denco` 编码 `()`，再用同一格式解码 `0xc0`。
+/// - 判断 / Assert: 编码字节为 `[0xc0]`，解码结果为 `()`。
+#[test]
+fn roundtrip_unit_() {
+    let buf = encode_vec_(&());
+    assert_eq!(buf, vec![0xc0]);
+    assert_eq!(decode_slice_::<()>(&buf), Ok(()));
+}
+
+/// 验证非 unit 输入解码为 `()` 时返回错误。
+/// Verify decoding a non-unit input as `()` returns an error.
+///
+/// - 测试目标 / Goal: `UnitVisitor` 只接受 `visit_unit`，其他类型应被拒绝。
+/// - 手段 / Method: 用 `mp_denco` 从 fixint `0x01` 解码 `()`。
+/// - 判断 / Assert: 返回 `Err`。
+#[test]
+fn decode_unit_rejects_non_unit_() {
+    assert!(decode_slice_::<()>(&[0x01]).is_err());
+}
+
+/// 验证包含 `()` 字段的派生结构体可以往返。
+/// Verify a derived struct containing a `()` field round-trips.
+///
+/// - 测试目标 / Goal: 派生代码对 `()` 字段的 `TrEncodable` / `TrDecodable` 约束成立。
+/// - 手段 / Method: 编码 `UnitField { unit_: (), value_: 7 }` 后再解码。
+/// - 判断 / Assert: 解码结果与原值完全相等。
+#[test]
+fn roundtrip_unit_field_() {
+    let value = UnitField {
+        unit_: (),
+        value_: 7,
+    };
+    let buf = encode_vec_(&value);
+    assert_eq!(decode_slice_::<UnitField>(&buf), Ok(value));
+}
