@@ -5,6 +5,9 @@
 - `#[derive(TrEncodable)]`：生成 `abs_denco::ser::TrEncodable` 实现；
 - `#[derive(TrDecodable)]`：生成 `abs_denco::de::TrDecodable` 实现。
 
+开启 `denco_macro/type-id` 后还提供显式的 `#[derive(TrHasTypeId)]`，生成
+`abs_denco::type_id::TrHasTypeId`（见后文「类型 ID」）。
+
 宏内部使用 [`zyn`](https://crates.io/crates/zyn) 的 `#[zyn::derive]`、模板与元素设施，
 生成代码的 future 类型复用 `gen_mcf2::gen_may_cancel_future`，因此与手写实现保持
 相同的取消语义。
@@ -89,6 +92,43 @@ enum Shape {
 | `#[denco(rename = "...")]` | 修改变体名 |
 | `#[denco(alias = "...")]` | 解码时额外接受的变体名；可重复 |
 
+## 类型 ID（`type-id` feature）
+
+默认关闭。开启时需要**同时**打开两个 feature：
+
+```toml
+abs_denco = { path = "../abs_denco", features = ["type-id"] }
+denco_macro = { path = "../denco_macro", features = ["type-id"] }
+```
+
+`TrHasTypeId` 是**显式派生**，不会由 `TrEncodable` 附带生成：
+
+```rust
+use abs_denco::type_id::TrHasTypeId;
+use denco_macro::{TrDecodable, TrEncodable, TrHasTypeId};
+
+#[derive(TrEncodable, TrDecodable, TrHasTypeId)]
+struct User {
+    id: u64,
+    name: String,
+}
+
+let wire_id = User::TYPE_ID_64;
+let full = User::TYPE_ID_128;
+```
+
+- 三个宽度同时提供且**互相独立**：32/64/128 位各用原生宽度哈希与专属
+  domain，不是 128 位结果的截断。
+- 默认哈希是 FNV-1a 32/64/128；把 `abs_denco` 的 feature 换成
+  `type-id-murmur3` 可切换为 Murmur3 x86_32 / MurmurHash64A / x64_128
+  （Murmur3 没有原生 64 位输出，64 位使用 MurmurHash64A）。
+- 哈希算法是线上兼容性契约的一部分，同一 workspace 只能选一种。
+- 递归类型、手写 codec 类型或需要固定线上 ID 的类型**不要派生**
+  `TrHasTypeId`，直接手写 `impl TrHasTypeId`（三个 const）；递归可调用
+  `path_id_32` / `path_id_64` / `path_id_128`。
+- 派生 `TrHasTypeId` 的类型，其参与线上的字段类型都必须实现 `TrHasTypeId`；
+  手写 codec 类型需要自己补 impl。
+
 ## 示例：重命名与默认值
 
 ```rust
@@ -117,7 +157,10 @@ struct Config {
 
 ## 已知限制
 
-- 暂不支持带生命周期参数的类型；借用型解码请手写实现。
+- 多个生命周期参数都会绑定到同一个 `'alloc`；含生命周期的递归类型可能触发 trait
+  求解循环，建议手写实现。
+- 递归类型（直接或互相递归）在 `type-id` 下不要派生 `TrHasTypeId`，手写 impl
+  并使用 `path_id_32` / `path_id_64` / `path_id_128`；否则 const 求值会报 `E0391`。
 - 不支持 union。
 - 暂不支持跳过元组结构体或元组变体的单个字段；这类字段的位置语义会改变。
 - 暂不支持自定义 `#[denco(default = "path")]` 函数、`flatten`、`with` 等 serde
@@ -130,4 +173,5 @@ struct Config {
 
 `denco_macro/tests/derive_.rs` 覆盖 unit/newtype/tuple/named 结构体、四种枚举
 变体、泛型、`rename_all`、`skip`、`default`、`alias`、`transparent`、空结构体，
-以及派生编码与 `rmp-serde` 命名字节的一致性。
+以及派生编码与 `rmp-serde` 命名字节的一致性；`denco_macro/tests/type_id_.rs`
+覆盖显式 `TrHasTypeId` 的生成、泛型、transparent、手写固定 ID 与递归路径 ID。

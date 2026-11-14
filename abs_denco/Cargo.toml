@@ -30,6 +30,15 @@ std = ["alloc-collections"]
 # `String<&'alloc A>` 借用 decoder 的 arena。默认开启。
 str_alloc = ["dep:abs_str"]
 
+# 可选的类型指纹（结构化类型 ID）。默认关闭；开启时必须同时开启
+# `denco_macro/type-id`，否则派生类型不会生成 `TrHasTypeId`。
+type-id = []
+
+# 把默认的 FNV-1a 32/64/128 切换为 Murmur3 x86_32 / MurmurHash64A / x64_128；
+# 隐含 `type-id`。
+# 注意：hash 算法是线上兼容性契约的一部分，同一 workspace 只能选一种。
+type-id-murmur3 = ["type-id"]
+
 [dependencies]
 abs_cancel = { git = "https://gitee.com/lino_snsalias/cancel_rs.git" }
 abs_mm = { git = "https://gitee.com/lino_snsalias/abs_mm.git", branch = "dev/0.3.0" }

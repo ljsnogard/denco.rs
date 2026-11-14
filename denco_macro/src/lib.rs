@@ -1,6 +1,7 @@
 //! denco 的 derive 宏。
 //!
-//! 提供 [`TrEncodable`] 与 [`TrDecodable`] 两个派生宏，用法与 serde 的
+//! 提供 [`TrEncodable`] 与 [`TrDecodable`] 两个派生宏；开启
+//! `denco_macro/type-id` 后还提供 `TrHasTypeId`，用法与 serde 的
 //! `Serialize` / `Deserialize` 类似：
 //!
 //! ```ignore
@@ -56,6 +57,8 @@ mod decode_;
 mod encode_;
 mod model_;
 mod names_;
+#[cfg(feature = "type-id")]
+mod type_id_;
 
 /// 为结构体或枚举派生 `abs_denco::ser::TrEncodable`。
 ///
@@ -77,6 +80,23 @@ fn tr_encodable(#[zyn(input)] input: zyn::Extract<syn::DeriveInput>) -> zyn::Tok
 fn tr_decodable(#[zyn(input)] input: zyn::Extract<syn::DeriveInput>) -> zyn::TokenStream {
     match model_::parse_(&input) {
         Ok(model) => decode_::expand_(&model),
+        Err(err) => err.to_compile_error(),
+    }
+}
+
+/// 为结构体或枚举派生 `abs_denco::type_id::TrHasTypeId`。
+///
+/// 本 derive 只在 `denco_macro/type-id` 开启时存在，并且必须与
+/// `abs_denco/type-id` 同时开启。它会生成 `TYPE_ID_128` / `TYPE_ID_64` /
+/// `TYPE_ID_32` 与 `TYPE_NAME`；三个宽度分别用原生 32/64/128 位哈希计算。
+///
+/// 手写编解码类型、递归类型或需要固定线上 ID 的类型不要派生本宏，直接手写
+/// `impl abs_denco::type_id::TrHasTypeId` 即可。
+#[cfg(feature = "type-id")]
+#[zyn::derive("TrHasTypeId", attributes(denco))]
+fn tr_has_type_id(#[zyn(input)] input: zyn::Extract<syn::DeriveInput>) -> zyn::TokenStream {
+    match model_::parse_(&input) {
+        Ok(model) => type_id_::expand_(&model),
         Err(err) => err.to_compile_error(),
     }
 }

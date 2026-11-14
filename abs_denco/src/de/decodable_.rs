@@ -59,6 +59,7 @@ pub trait TrDecodable<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
 /// # Examples
 ///
 /// ```
+/// #[cfg(feature = "cow")]
 /// use std::borrow::Cow;
 ///
 /// use abs_denco::de::TrDecodableOwned;
@@ -68,6 +69,7 @@ pub trait TrDecodable<'alloc, Alloc: TrArena<'alloc> + 'alloc>: Sized {
 /// assert_owned::<()>();
 /// assert_owned::<String>();
 /// assert_owned::<Vec<u32>>();
+/// #[cfg(feature = "cow")]
 /// assert_owned::<Cow<'static, str>>();
 /// ```
 ///

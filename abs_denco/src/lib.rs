@@ -32,6 +32,8 @@
 //! | `cow` | `Cow<'a, str>` / `Cow<'a, [T]>`（解码一律得到 `Owned`） |
 //! | `std` | `HashMap` / `HashSet`；隐含 `alloc-collections` |
 //! | `str_alloc` | `abs_str::str_alloc::String<A>` 的编解码（allocator 由 decoder 投影） |
+//! | `type-id` | 结构化类型指纹：`TrHasTypeId` / `TrTypeId` / 注册表；**必须同时开启 `denco_macro/type-id`** |
+//! | `type-id-murmur3` | 用 Murmur3 x86_32 / MurmurHash64A / x64_128 替代默认 FNV-1a 32/64/128；隐含 `type-id` |
 //!
 //! 需要组合多个特性时直接相加，例如：
 //!
@@ -75,6 +77,10 @@ extern crate std;
 
 pub mod de;
 pub mod ser;
+
+/// 可选的类型指纹（结构化 TypeId）；由 `type-id` feature 控制。
+#[cfg(feature = "type-id")]
+pub mod type_id;
 
 pub use de::{TrDecodable, TrDecoder};
 pub use ser::{TrEncodable, TrEncoder};
